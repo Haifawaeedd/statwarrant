@@ -1,0 +1,75 @@
+name: Feedback
+description: Tell us how statwarrant worked for you. Takes about 3 minutes.
+title: "[Feedback] "
+labels: ["feedback"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for trying statwarrant. Everything you write here is public and is used to improve the software.
+        Please do not paste confidential or unpublished data.
+  - type: dropdown
+    id: role
+    attributes:
+      label: What best describes you?
+      options:
+        - Master's student
+        - PhD student
+        - Researcher or academic
+        - Data scientist or ML engineer
+        - Teacher of statistics
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: field
+    attributes:
+      label: Your field
+      placeholder: e.g. education, psychology, NLP, public health
+  - type: textarea
+    id: use
+    attributes:
+      label: What did you use it for?
+      description: The kind of comparison and where the numbers came from (scipy, statsmodels, a paper, model scores...).
+    validations:
+      required: true
+  - type: dropdown
+    id: changed
+    attributes:
+      label: Did the output change what you would have written?
+      options:
+        - "Yes, it stopped a claim I would have made"
+        - "Yes, it gave me better wording"
+        - "No, it agreed with what I would have written"
+        - "No, and I think it was wrong"
+    validations:
+      required: true
+  - type: dropdown
+    id: clarity
+    attributes:
+      label: How clear was the output?
+      options:
+        - "5 - very clear"
+        - "4"
+        - "3"
+        - "2"
+        - "1 - confusing"
+    validations:
+      required: true
+  - type: textarea
+    id: misjudged
+    attributes:
+      label: A sentence that was judged wrongly (if any)
+      description: Paste the sentence, the verdict you got, and the verdict you expected. These reports are the most useful.
+      render: text
+  - type: textarea
+    id: missing
+    attributes:
+      label: What was missing or getting in the way?
+  - type: checkboxes
+    id: public
+    attributes:
+      label: Public feedback
+      options:
+        - label: I understand this feedback is public and will be used to improve statwarrant.
+          required: true
