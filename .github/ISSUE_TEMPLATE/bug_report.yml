@@ -3,6 +3,11 @@ description: A wrong number, a crash, or output that contradicts itself.
 title: "[Bug] "
 labels: ["bug"]
 body:
+  - type: markdown
+    attributes:
+      value: |
+        Everything here is public: do not paste confidential or unpublished data. Security problems:
+        report them privately (see SECURITY.md), not here.
   - type: textarea
     id: what
     attributes:
@@ -20,6 +25,6 @@ body:
     id: versions
     attributes:
       label: Versions
-      placeholder: statwarrant 0.1.0, Python 3.12, SciPy 1.14
+      placeholder: statwarrant 0.5.0.dev0 (commit abc1234), Python 3.12, SciPy 1.14, Windows 11
     validations:
       required: true

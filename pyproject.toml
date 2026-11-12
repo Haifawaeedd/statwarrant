@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "statwarrant"
-version = "0.4.3.dev0"
+version = "0.5.0.dev0"
 description = "What your statistical result warrants you to say: equivalence, minimal-effect and zero tests turned into allowed and blocked claims."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -17,6 +17,8 @@ classifiers = [
   "Intended Audience :: Education",
   "License :: OSI Approved :: MIT License",
   "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Operating System :: OS Independent",
   "Topic :: Scientific/Engineering :: Mathematics",
 ]
 dependencies = ["numpy>=1.22", "scipy>=1.11"]
@@ -27,6 +29,8 @@ test = ["pytest>=7", "hypothesis>=6", "statsmodels>=0.13"]
 [project.urls]
 Homepage = "https://github.com/Haifawaeedd/statwarrant"
 Issues = "https://github.com/Haifawaeedd/statwarrant/issues"
+Changelog = "https://github.com/Haifawaeedd/statwarrant/blob/main/CHANGELOG.md"
+"Known issues" = "https://github.com/Haifawaeedd/statwarrant/blob/main/KNOWN_ISSUES.md"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/statwarrant"]
