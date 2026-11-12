@@ -301,6 +301,15 @@ _NEITHER_ESTABLISHED = (
     r"[^.;,]*|"
     r"\bneither\s+(?:(?:a|an|the|any)\s+)?(?:statistically\s+)?significan\w*\b[^.;]*?\bnor\b[^.;,]*")
 _NEITHER_ESTABLISHED_RE = re.compile(_NEITHER_ESTABLISHED)
+# "doubled", "halved", "three times": a claim about a ratio
+_RATIO_WORDS = {"doubl": 2.0, "twice": 2.0, "two-fold": 2.0, "twofold": 2.0, "two times": 2.0, "tripl": 3.0,
+                "thrice": 3.0, "three-fold": 3.0, "threefold": 3.0, "three times": 3.0, "quadrupl": 4.0,
+                "four-fold": 4.0, "fourfold": 4.0, "four times": 4.0, "five-fold": 5.0, "fivefold": 5.0,
+                "five times": 5.0, "ten-fold": 10.0, "tenfold": 10.0, "ten times": 10.0, "halv": 0.5,
+                "half": 0.5}
+# A ratio word is read as a claim about this result only when its clause names a ratio
+# quantity ("doubled the odds", "the risk was halved").
+_RATIO_OBJECT = re.compile(r"\b(?:odds|risks?|hazards?|rates?|likelihood|chances?|probabilit(?:y|ies)|incidence)\b")
 
 _WORD_PATTERNS = [
     ("_skip", r"\bfalse (?:positives?|negatives?)\b|\bscope:"),
@@ -309,6 +318,9 @@ _WORD_PATTERNS = [
               r"(?:tests?|testing|analys[ie]s)\b"),
     ("_skip", r"\b(?:equivalence|minimal[- ]effects?|non-?inferiority) (?:tests?|testing|analys[ie]s|procedures?|"
               r"bounds?|margins?|regions?)\b|\btost\b"),
+    ("ratio", r"\b(?:doubl(?:e|ed|es|ing)|tripl(?:e|ed|es|ing)|quadrupl(?:e|ed|es|ing)|halv(?:e|ed|es|ing)|"
+              r"(?:twice|thrice|(?:two|three|four|five|ten) times)(?=\s+(?:as|the|that|higher|larger|greater|more|"
+              r"lower|smaller|less|fewer)\b)|(?:two|three|four|five|ten)[- ]?fold|(?:by|in) half|half (?:as|the))\b"),
     ("probability_misreading", r"\b(?:probability|chance|likelihood)\s+(?:that|of)\s+(?:the\s+)?(?:true\s+)?"
                                r"(?:effect|difference|mean|value|parameter|null|hypothesis|results?|findings?|"
                                r"estimate|population)\b|\b(?:due to|by|because of|from)\s+(?:random\s+)?chance\b"),
@@ -347,7 +359,8 @@ _WORD_PATTERNS = [
     ("small", r"\b(?:negligibl[ey]|trivial(?:ly)?)\b|"
               r"\b" + _SMALL + r"(?:,?\s+(?:but|and|yet)?\s*(?!(?:the|a|an|this|that|these|those|its|their|our|his|"
               r"her|was|were|is|are)\b)[a-z-]+){0,2}?\s+" + _NOUNS + r"\b|"
-              r"\b" + _NOUNS + r"\s+(?:is|was|were|are|remained|remains|seems?|seemed|appears?|appeared)\s+"
+              r"\b" + _NOUNS + r"(?:\s+(?:between|in|of|for|on|across|among|from)(?:\s+[a-z0-9'-]+){1,5}?)?\s+"
+              r"(?:is|was|were|are|remained|remains|seems?|seemed|appears?|appeared)\s+"
               r"(?:very |quite |rather |relatively |fairly |extremely |really )?" + _SMALL + r"\b|"
               r"\bslight(?:ly)?\b|"
               r"\b(?:smaller|less) than " + _SESOI),
@@ -358,7 +371,9 @@ _WORD_PATTERNS = [
                   r"inferior|more effective|less effective)\b|"
                   r"\bno\s+(?:different|higher|lower|better|worse)\b|"
                   r"\b(?:failed|fails|fail) to\s+" + _VERBS + r"\w*|"
-                  r"\b(?:ineffective|unaffected|unchanged)\b|"
+                  r"\b(?:ineffective|unaffected|unchanged|unrelated to|uncorrelated with)\b|"
+                  r"\b(?:was|were|is|are|been|be)\s*(?:not|n't)\s+(?:associated|related|linked|correlated)\s+"
+                  r"(?:with|to)\b|"
                   r"\bneither\b[^.;]*?\bnor\b(?:\s+\w+)?"),
     ("certainty", r"\b(?:prove[sdn]?|proof|conclusively|definitely|certainly|undeniabl[ey]|exactly|precisely)\b"),
     ("generalization", r"\b(?:in general|generally|always|universally|for everyone|for everybody|everyone|everybody|"
@@ -422,6 +437,10 @@ _NUMBER_PATTERNS = [
     # "95% probability", "95% confident": a probability statement, not a percentage change
     ("_skip", re.compile(r"(?<![a-z_])" + _NUM + r"\s*%(?=\s*(?:probability|chance|likelihood|confident|confidence|"
                          r"certain|sure)\b)")),
+    ("plausible_value", re.compile(r"\b(?:could|may|might|can)\s+(?:be|reach|have been)\s+as\s+"
+                                   r"(large|big|high|great|much|small|low|little)\s+as\s+(" + _NUM + r")")),
+    ("fold", re.compile(r"(?<![a-z_])(" + _NUM + r")\s*(?:-\s*|\s+)?(?:fold\b|times(?=\s+(?:as|the|higher|larger|"
+                        r"greater|more|lower|smaller|less|fewer)\b))")),
     ("interval_level", re.compile(r"(" + _NUM + r")\s*%\s*(?:confidence |credible |compatibility )?"
                                   r"(?:intervals?|ci)\b")),
     ("alpha_level", re.compile(r"(?:\b(?:alpha|α)\s*(?:=|of)\s*(" + _NUM + r"))|(?:(" + _NUM + r")\s*%\s*"
@@ -742,6 +761,8 @@ def _scan(sentence: str, ctx: Context):
 
     for name, pat in _COMPILED:
         for m in list(pat.finditer(text)):
+            if name == "ratio" and not _RATIO_OBJECT.search(_bounded(original, m.start(), m.end(), _SEGMENT)):
+                continue  # "halved dropout": a ratio about something else; left unchecked
             if name != "_skip":
                 named, elsewhere = _named_test(original, m.start(), m.end())
                 hits.append(_Hit(name, m.group(0).strip(), m.start(), m.end(),
@@ -756,7 +777,7 @@ def _scan(sentence: str, ctx: Context):
     if mode:
         after_pp = [m.end() - 1 for m in re.finditer(_PP + r"\s*\(", original)]  # the "(" after "points"
         for h in hits:
-            if h.category not in ("magnitude", "range", "number"):
+            if h.category not in ("magnitude", "range", "number", "plausible_value"):
                 continue
             attached = bool(re.match(r"\s*(?:[a-z]+\s+)?" + _PP, original[h.end:]))
             if not attached and h.category == "range":  # "0.9 percentage points (95% CI -0.7 to 2.5)"
@@ -891,7 +912,8 @@ _UNBOUND_WHAT = {
     "significance": "this significance statement", "nonsignificance": "this significance statement",
     "marginal": "this significance statement", "evidence": "this evidence statement",
     "evidence_absent": "this evidence statement", "importance": "this importance claim",
-    "big": "this size word", "small": "this size word",
+    "big": "this size word", "small": "this size word", "ratio": "this ratio", "fold": "this ratio",
+    "plausible_value": "this interval end",
 }
 
 
@@ -1048,7 +1070,56 @@ def _judge_hit(h: _Hit, ctx: Context, sign: Optional[int]) -> Tuple[str, str]:
     if cat == "neither_established":
         return _judge_neither(h, ctx)
 
+    if cat == "ratio":
+        return _judge_factor(_ratio_factor(h.phrase), h.phrase, ctx)
+
     raise KeyError(cat)
+
+
+def _ratio_factor(phrase: str) -> float:
+    for key in sorted(_RATIO_WORDS, key=len, reverse=True):
+        if key in phrase:
+            return _RATIO_WORDS[key]
+    raise KeyError(phrase)
+
+
+def _exp(x: float) -> float:
+    return math.exp(x) if x < 700 else math.inf
+
+
+def _judge_factor(f: float, written: str, ctx: Context) -> Tuple[str, str]:
+    """A ratio claim ("doubled", "a 3-fold increase") against a result on a log scale, or
+    against the relative change when a baseline is declared."""
+    ev = ctx.evidence
+    lo, hi = ev.zero_interval
+    level = level_text(ev.zero_level)
+    units = (ctx.units or "").lower()
+    if f <= 0:
+        return CHECK, f"'{written}' does not state a usable ratio."
+    if re.search(r"\blog\b|\blog[- ]|logit", units):
+        lf, est_f, lo_f, hi_f = math.log(f), _exp(ev.estimate), _exp(lo), _exp(hi)
+        scale = (f"on the ratio scale the estimate is a factor of {fmt(est_f)} ({level} CI {fmt(lo_f)} to "
+                 f"{fmt(hi_f)})")
+        if not lo <= lf <= hi:
+            return CONFLICT, f"A factor of {fmt(f)} is not compatible with the data: {scale}."
+        if abs(lf - ev.estimate) <= math.log(1.05):
+            return CONSISTENT, f"Matches the estimate: {scale}. Report the interval too."
+        return CHECK, (f"A factor of {fmt(f)} is compatible with the data but is not the estimate: {scale}. Report "
+                       f"the estimate and interval instead of a single factor.")
+    if ctx.baseline:
+        b = ctx.baseline
+        rel = ev.estimate / b
+        rlo, rhi = sorted((lo / b, hi / b))
+        scale = (f"the relative change is {rel:+.1%} of the baseline ({level} CI {rlo:+.1%} to {rhi:+.1%}), "
+                 f"a factor of {fmt(1 + rel)}")
+        if not rlo <= f - 1 <= rhi:
+            return CONFLICT, f"A factor of {fmt(f)} is not compatible with the data: {scale}."
+        if abs((f - 1) - rel) <= 0.05 * f:
+            return CONSISTENT, f"Matches the estimate: {scale}. Report the interval too."
+        return CHECK, f"A factor of {fmt(f)} is compatible with the data but is not the estimate: {scale}."
+    return CHECK, (f"'{written}' states a ratio (a factor of {fmt(f)}), but the result is a difference on the "
+                   f"{ctx.units or 'analysis'} scale. statwarrant checks ratios only for log-scale units or with a "
+                   f"declared baseline; report the estimate and interval.")
 
 
 def _neither_kind(item: str, ctx: Context) -> Optional[str]:
@@ -1373,6 +1444,36 @@ def _judge_number(h: _Hit, ctx: Context, sign: Optional[int], known) -> Tuple[st
             return CHECK, f"{s} lies inside the {z} but is not the estimate ({ctx.u(ev.estimate)})."
         return CONFLICT, f"{s} is outside the {z}."
 
+    if h.category == "fold":
+        return _judge_factor(float(g[0]), h.phrase, ctx)
+
+    if h.category == "plausible_value":
+        word, s = g[0], g[1]
+        x = float(s)
+        dirs = [-1] if x < 0 else ([sign] if sign in (1, -1) else [1, -1])
+        values = [d * abs(x) for d in dirs]
+        ends = [(f"lower end of the {z}", lo), (f"upper end of the {z}", hi)]
+        if ev.equivalence_interval is not None and ev.equivalence_level != ev.zero_level:
+            elo, ehi = ev.equivalence_interval
+            e = ctx.ci_text("equivalence")
+            ends += [(f"lower end of the {e}", elo), (f"upper end of the {e}", ehi)]
+        if word in ("large", "big", "high", "great", "much"):
+            # "as large as": the far end, in the stated direction or else the larger in size
+            if x < 0 or sign in (1, -1):
+                far = -1 if x < 0 else sign
+                ends = [(n, q) for n, q in ends if (q > 0) == (far > 0)]
+            else:
+                ends = [max(ends[:2], key=lambda nq: abs(nq[1]))] + [
+                    (n, q) for n, q in ends[2:] if abs(q) == max(abs(q2) for _, q2 in ends[2:])]
+        for name, q in ends:
+            if any(_close(v, s.lstrip("-"), q) for v in values):
+                return CONSISTENT, f"Matches the {name}: effects up to there are compatible with the data."
+        if any(lo <= v <= hi for v in values):
+            return CHECK, (f"{s} is inside the {z} but is not an end of it: the data are compatible with effects "
+                           f"from {ctx.u(lo)} to {ctx.u(hi)}.")
+        return CONFLICT, (f"{s} is outside the {z}: the data are compatible with effects from {ctx.u(lo)} to "
+                          f"{ctx.u(hi)} only.")
+
     raise KeyError(h.category)
 
 
@@ -1579,7 +1680,8 @@ def _exact_comparison(text: str, ctx: Context):
     return None
 
 
-_NUMBER_CATS = {"interval_level", "alpha_level", "p_value", "percentage", "magnitude", "range"}
+_NUMBER_CATS = {"interval_level", "alpha_level", "p_value", "percentage", "magnitude", "range", "plausible_value",
+                "fold"}
 _FOLDED = {"importance", "big", "significance"}
 _NEGATING = {"nonsignificance", "evidence_absent", "marginal"}
 
@@ -1615,6 +1717,9 @@ _ACTION = {
     "unattached_negation": "Check the negated part by hand.",
     "neither_equivalence": "Check both negated claims and their bounds against the result.",
     "neither_established": "Check each part against the result.",
+    "ratio": "Report the estimate and interval; state ratios only on a ratio (log) scale or with a baseline.",
+    "fold": "Report the estimate and interval; state ratios only on a ratio (log) scale or with a baseline.",
+    "plausible_value": "Name the interval and its level, e.g. 'the 95% CI reaches 2.5'.",
 }
 
 
@@ -1708,7 +1813,8 @@ def check_sentence(sentence: str, ctx: Context) -> CheckResult:
             role = _number_hit_role(h, original, ctx) if h.category == "number" else None
             if (h in embedded or h.category in ("importance", "big", "significance", "nonsignificance", "evidence",
                                                 "evidence_absent", "marginal", "small", "magnitude", "percentage",
-                                                "range") or role in ("estimate", "coefficient")):
+                                                "range", "ratio", "fold", "plausible_value")
+                    or role in ("estimate", "coefficient")):
                 details = []
                 if h.data.get("multiple_models"):
                     details.append("More than one model is mentioned; verify which model this number describes.")
