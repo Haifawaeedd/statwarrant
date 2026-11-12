@@ -1,8 +1,40 @@
-# Known issues in the 0.4.2 experimental alpha
+# Known issues in the 0.5.0.dev0 experimental alpha
 
 These are known, unresolved issues. The examples are targeted checks, not estimates
 of how often errors occur. Use statwarrant as an aid, not an automated validator;
 independently check calculations and the full text of research claims.
+
+## Third user trial (new data, sentences frozen before checking)
+
+Three real datasets (RAND Health Insurance Experiment, credit-card expenditure, two
+classifiers on the breast-cancer data) and 24 sentences labelled before any check were
+run on commit 8ad4164. The sentences and labels were written by an AI that had also
+written linter rules, so this is not an independent evaluation, and 24 sentences give
+very wide uncertainty.
+
+* **Statistics.** statwarrant read the fitted models exactly (estimates, SEs, p-values
+  and decisions). This was an extraction check against the same fitted models, not an
+  independent re-analysis.
+* **The analyses had problems statwarrant cannot see.** The RAND rows come from 5,912
+  people observed repeatedly; row-level robust SEs understate uncertainty (person-
+  clustered SE 0.0110 instead of 0.0072). statsmodels' `lncoins` disagrees with the
+  source file's `logc` in 4,855 rows; with `logc` and clustering, equivalence within the
+  illustrative threshold is no longer established. statwarrant interprets the numbers it
+  is given; it does not check the model, the coding or the standard errors.
+* **Sentence checker on 8ad4164:** 10 of 13 problem sentences got a warning; 9 of 11
+  acceptable sentences got one (8 `check`, 1 `conflict`). Any warning on any part was
+  counted, so a "caught" problem was not always caught for the right reason.
+  "Coinsurance halved the number of doctor visits.", "Homeowners and renters spent the
+  same amount." and "Home ownership was unrelated to credit-card spending." were not
+  recognised at all (`no_supported_pattern`). "Neither a difference nor equivalence
+  could be shown." got a false `conflict`.
+* **On this integration branch:** 11 of 13 and 7 of 11 (all `check`, no `conflict`).
+  The rules that changed these numbers were written before the sentences, but by the same
+  author, so the improvement is optimistic. The remaining `check` warnings on acceptable
+  sentences come from comparisons that cannot be tied to the declared contrast, numbers
+  whose role is unknown (group accuracies, item counts, ratio-scale values) and
+  percentages whose scale is not stated. The linter was not changed for these 24
+  sentences; they stay an evaluation set for this version only.
 
 ## Changes after the first review, with limitations
 
@@ -26,6 +58,8 @@ remaining cases below. This is not independent human validation.
 * **Printed cut-offs.** Transition search now covers the finite binary64 domain and
   checks adjacent floating-point values. The previously reported cancellation and
   extreme-export examples have regression tests; this is not a proof for all inputs.
+  A design table with an assumed effect tiny relative to the SE could still break JSON
+  export until 0.5.0.dev0, which refuses such effects with a message.
 * **Small nulls at extreme offsets.** SciPy does not retain its original null. The
   adapter attempts to reconstruct it and discloses the approximate rounding scale.
   An unresolved value can be recorded as unknown (`null` in JSON); even an inferred
@@ -75,6 +109,11 @@ Earlier fixes (0.4.2 before branch review) are listed in `CHANGELOG.md`.
   `no_warnings` while `over follow-up` is unchecked. Even `no_warnings` does not
   validate which group or time point is higher. Check the contrast, scales, outcome
   and complete sentence manually.
+* **Ratio wording.** Ratio words are judged only when their clause names a ratio
+  quantity (odds, risk, rate, hazard, likelihood, chance, probability, incidence), and
+  only for log-scale units or with a declared baseline; otherwise they get `check`.
+  "Halved the number of visits" is not recognised. "Doubled the dose" in such a clause
+  would be misread as a claim about the result.
 
 ## 2. Paired comparisons with few differing items
 

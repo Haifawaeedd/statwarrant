@@ -4,6 +4,7 @@
 
 [![tests](https://github.com/Haifawaeedd/statwarrant/actions/workflows/tests.yml/badge.svg)](https://github.com/Haifawaeedd/statwarrant/actions/workflows/tests.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Haifawaeedd/statwarrant/blob/main/examples/quickstart.ipynb)
 
 `statwarrant` turns an estimate and its uncertainty into a **claim contract**: the
 statements your result supports, the statements it does not, and the reason for
@@ -15,17 +16,22 @@ importance, and it can flag common misreadings in a sentence you are about to wr
 > and the sentence linter's accuracy has not been measured. Use it as an aid to careful
 > reporting, not as a validator, and check its output. Reports of wrong results are very welcome.
 
-> **0.4.3.dev0 experimental comparison branch — not a release.** This branch adds targeted
-> fixes and regression tests based on real-data and numerical edge-case reviews.
-> The linter remains pattern-based and has not been validated on a human-annotated
-> independent test set. Some comparative wording is still not recognized, and even
-> a recognized number, direction or significance span can be judged incorrectly.
-> Always check group order, outcome, contrast and the complete sentence independently.
-> See [KNOWN_ISSUES.md](KNOWN_ISSUES.md).
+> **0.5.0.dev0 integration branch — not a release.** This branch combines the
+> comparison-safety work with fixes made after the third user trial and its review
+> (design-table export, "neither ... nor ... was established", clearer warning messages,
+> ratio and interval-end wording) and the files for a public trial. The linter remains
+> pattern-based and partial and has not been validated on a human-annotated independent
+> test set. Always check group order, outcome, contrast and the complete sentence
+> independently. See [KNOWN_ISSUES.md](KNOWN_ISSUES.md).
 >
-> This is an unreleased development snapshot, not a tag or a PyPI release. See the
-> install instructions below and pin a commit when reproducing a review, because
-> branch contents may change.
+> This is an unreleased development snapshot, not a tag or a PyPI release. It is meant to
+> be merged into `main`; until then, install it from the `integrate/0.5.0` branch and pin
+> the commit when reproducing a result.
+
+**Try it** in the [quick-start notebook on Colab](https://colab.research.google.com/github/Haifawaeedd/statwarrant/blob/main/examples/quickstart.ipynb)
+(nothing to install). **Found a sentence the checker judged wrongly?**
+[Report it](https://github.com/Haifawaeedd/statwarrant/issues/new?template=linter.yml); this is
+the most useful feedback. Reports are public: do not paste confidential or unpublished text.
 
 It does not invent new statistics. It combines established methods (tests of
 difference, equivalence and minimal effect; design analysis) into one consistent
@@ -64,9 +70,9 @@ print(res.check("The new method improved scores by about 4 points and is safe fo
     declared contrast, compared groups or time points and their order could not be
     verified. Check the wording and contrast by hand.
     Check: Verify the compared groups or time points, their order and the declared contrast by hand.
-  - check    magnitude              "by about 4 … points": The direction's relationship to
-    the declared contrast, compared groups or time points and their order could not be
-    verified. Check the wording and contrast by hand.
+  - check    magnitude              "by about 4 … points": Not checked against the result:
+    this size depends on which way the comparison runs, and the wording could not be tied
+    to the declared contrast (new method minus existing method). Check it by hand.
     Check: Check the intended quantity, unit and any conversion by hand.
   - conflict generalization         "for all": An average effect does not show that every
     individual or case is affected, and the evidence comes from 'first-year students,
@@ -116,10 +122,11 @@ the output says so.
 
 ```bash
 python -m pip install numpy scipy
-python -m pip install --force-reinstall --no-deps "git+https://github.com/Haifawaeedd/statwarrant@fix/comparative-direction-safety"
+python -m pip install --force-reinstall --no-deps "git+https://github.com/Haifawaeedd/statwarrant@integrate/0.5.0"
 ```
 
-Pin the Git commit you used, so your analysis can be reproduced. Requires Python 3.9+,
+Pin the Git commit you used, so your analysis can be reproduced. statwarrant is not yet
+on PyPI. Requires Python 3.9+,
 NumPy and SciPy 1.11+. `--force-reinstall` prevents a previously installed development
 snapshot from being reused silently; install the dependencies first.
 
@@ -306,11 +313,26 @@ do not claim it is the first or only one.
 
 This is an early release and your opinion shapes it.
 
-* **Tell us how it went:** [open a feedback form](https://github.com/Haifawaeedd/statwarrant/issues/new?template=feedback.yml)
-* **Found a sentence the linter handles wrongly** (a false warning, or a misreading it missed)? That is the most useful report we can get. Use the same form.
-* **Questions and ideas:** [Discussions](https://github.com/Haifawaeedd/statwarrant/discussions)
+* **A sentence the checker handled wrongly** (a false warning, or a misreading it missed):
+  [report it](https://github.com/Haifawaeedd/statwarrant/issues/new?template=linter.yml). This is
+  the most useful report we can get.
+* **A wrong number, a crash or contradictory output:**
+  [bug report](https://github.com/Haifawaeedd/statwarrant/issues/new?template=bug_report.yml).
+* **How it went overall:** [feedback form](https://github.com/Haifawaeedd/statwarrant/issues/new?template=feedback.yml).
+* **Questions and ideas:** [Discussions](https://github.com/Haifawaeedd/statwarrant/discussions).
 
-Feedback here is public and used to improve the software.
+Feedback here is public and used to improve the software. Do not paste confidential or
+unpublished text. Security problems: see [SECURITY.md](SECURITY.md).
+
+## How statwarrant is developed
+
+statwarrant is designed and maintained by Haifaa Owayed, who chooses its scope, methods,
+claim wording and validation plan. Much of the code, tests and documentation is written
+with AI coding assistants (including Claude by Anthropic), and several review rounds were
+carried out with AI systems; these are not independent human reviews. The statistics are
+tested against SciPy, statsmodels and published reference values; independent human
+validation of the sentence checker is still to come (see [KNOWN_ISSUES.md](KNOWN_ISSUES.md)
+and the [human-review kit](evaluation/human-review/README.md)).
 
 ## Citing
 

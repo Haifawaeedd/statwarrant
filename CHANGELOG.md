@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.5.0.dev0 (unreleased integration branch)
+
+Built on the comparison-safety branch (commit 8ad4164) after the third user trial and its
+external review. No public release or tag is implied.
+
+* Design sensitivity is computed in units of the standard error; an exaggeration ratio
+  that cannot be represented is refused with a message, instead of a report whose JSON
+  export fails. Checked against numerical integration and Gelman and Carlin (2014).
+* "Neither X nor Y was established" (and "the data support neither ...", "neither a
+  significant difference nor equivalence") is judged item by item instead of being read
+  as a claim of no effect. The conservative rule for "neither equivalence nor an effect"
+  is kept and now also covers a size qualifier on "an effect".
+* In comparisons that cannot be tied to the declared contrast, warnings on numbers,
+  sizes and percentages say what was not checked, instead of repeating the direction
+  message.
+* Ratio wording ("doubled the odds", "a 3-fold increase"), interval ends ("could be as
+  large as 2.5"), "not associated with" and size words after a longer subject are
+  checked. These rules were written on the second trial's sentences, before the third
+  trial's sentences existed, and were not changed after it.
+* Public-trial files: Colab quick-start notebook, an issue form for sentences the
+  checker gets wrong, CI on macOS and Windows, a manually started and approved release
+  workflow (TestPyPI or PyPI), `SECURITY.md`, `CODE_OF_CONDUCT.md`, and an AI-use
+  statement in the README.
+
 ## 0.4.3.dev0 (unreleased comparison-safety branch)
 
 * Bind a restricted set of exact English group and time-order sentences to the
