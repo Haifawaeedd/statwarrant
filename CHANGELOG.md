@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased validation-observations branch
+
+* Added NIST Longley coefficient/SE regression checks, inference tests from five
+  frozen real-data summaries, and the external sleep review's named-test cases.
+  These are targeted tests, not independent human validation or an accuracy measure.
+* Added partial, conservative unit checks for simple units adjacent to effect numbers;
+  mismatched units request review and are not automatically converted. Other units and
+  phrasings may remain unchecked.
+* Improved several targeted coefficient, negation, undefined-size, probability-tail,
+  threshold-display, null-provenance and paired-integer cases. Lossy integral inputs
+  and critical values that fail a self-consistency check are refused. Extreme numerical
+  accuracy is not guaranteed; see `KNOWN_ISSUES.md`.
+* Narrow nonzero confidence intervals get enough displayed digits to avoid collapsing
+  solely through formatting; already-collapsed machine-precision intervals are disclosed.
+
 ## 0.4.2 (unreleased)
 
 Fixes from the first-user experiment (three real datasets), its independent review, and

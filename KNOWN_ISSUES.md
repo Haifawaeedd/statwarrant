@@ -23,21 +23,21 @@ remaining cases below. This is not independent human validation.
 * **Hidden directions.** A negation excuses direction words only in its own clause:
   `"The difference was not significant, and scores decreased."` now checks "decreased".
   "A small but significant decrease" is read as a size claim.
-* **Printed cut-offs.** Cut-offs are adjusted toward the transition in
-  `thresholds.decision()` and the original example now agrees. Near floating-point
-  cancellation, the fixed-step search can still stop before the transition and report
-  a contradictory boundary. An extreme finite case can also fail during report export.
-* **Small nulls at extreme offsets.** When the data scale makes a small null value
-  impossible to resolve (for example data near 1e14 tested against 0.5), it is recorded
-  as 0 with a note saying so.
-* **Reported p = 0.** Accepted only after the test statistic matches, with a note that
-  the p-value itself could not be verified. However, even when the recomputed p is an
-  ordinary value, such as 0.317, the source p = 0 is accepted and the note calls it an
-  underflow without proving that cause. Verify or supply the original result manually.
+* **Printed cut-offs.** Transition search now covers the finite binary64 domain and
+  checks adjacent floating-point values. The previously reported cancellation and
+  extreme-export examples have regression tests; this is not a proof for all inputs.
+* **Small nulls at extreme offsets.** SciPy does not retain its original null. The
+  adapter attempts to reconstruct it and discloses the approximate rounding scale.
+  An unresolved value can be recorded as unknown (`null` in JSON); even an inferred
+  zero cannot rule out a nonzero null below the numerical resolution.
+* **Reported p = 0.** An ordinary recomputed probability now causes rejection. Tiny
+  probabilities may still be accepted with an explicit note that the reported p-value
+  is unverified and that numerical loss is only one possible explanation. Positive
+  extreme p-values are checked using log tails where available.
 * **Tiny baselines** that overflow the relative change are refused.
-* **Large integers.** Some paired integer scores beyond 2**53 are now subtracted exactly.
-  Mixed-sign Python integer lists including values beyond signed int64 can still be
-  coerced to floats before subtraction, losing differences and changing inference.
+* **Large integers.** Paired differences are subtracted before float conversion, with
+  regression tests for mixed signs and numeric types. Precision lost before values
+  are passed to statwarrant cannot be recovered; unrepresentable differences are refused.
 
 Earlier fixes (0.4.2 before branch review) are listed in `CHANGELOG.md`.
 
@@ -50,14 +50,18 @@ Earlier fixes (0.4.2 before branch review) are listed in `CHANGELOG.md`.
 * **Scales.** Numbers are compared on the scale of the analysis. A correct odds ratio
   for a log-odds result gets `check`. Percentage-point conversion depends on the
   declared units; declare them precisely and verify every unit and conversion.
+  A limited set of simple units next to an effect number can be matched or flagged
+  for review; different units are not automatically converted. This is partial and
+  pattern-based: units on other quantities, compound or unrecognised units and some
+  phrasings may remain unchecked. Even a numeric match is not approval of a sentence.
 * **Other blind spots.** Unusual wording, long sentences with several claims, and
   claims about things statwarrant does not model (safety, mechanisms, other outcomes)
   may not be checked. Not every unchecked word is guaranteed to appear in the "not
   checked" list. Some spans may be marked consistent even when they overlap another
   conflicting part, or when a combined claim is worded in a way the patterns do not
-  cover. The construction "neither equivalence ... nor an effect ..." can incorrectly
-  be flagged as asserting equivalence or no effect. Do not treat a `consistent` span as
-  a substitute for human review of the whole claim.
+  cover. A specific construction "neither equivalence ... nor an effect ..." now asks
+  for manual review, but other negations can still be misread. Do not treat a
+  `consistent` span as a substitute for human review of the whole claim.
 
 ## 2. Paired comparisons with few differing items
 
@@ -70,13 +74,26 @@ not automatically an interval for the marginal mean or accuracy difference.
 
 ## 3. Extreme numerical precision
 
-Decisions are computed from test statistics, but printed cut-offs can still disagree
-with `thresholds.decision()` near floating-point cancellation. Inputs whose values
-differ only in their last floating-point digits (SciPy may warn about precision loss)
-are themselves unreliable. Some small nonzero SciPy nulls are recorded as zero
-without a provenance note; null values below the data's resolution cannot be recovered
-reliably. Other overflows with extreme finite inputs may remain. Independently verify
-edge cases; centre or rescale inputs when appropriate.
+Decisions are computed from test statistics. Inputs whose values differ only in their
+last floating-point digits (SciPy may warn about precision loss) are themselves
+unreliable. SciPy's original null is not stored and must be reconstructed or reported
+as unknown; the stated rounding scale is a diagnostic, not a confidence bound. Even
+when the raw interval endpoints differ, displayed values are rounded; if the endpoints
+have already collapsed to the same floating-point value, display cannot recover them.
+Other overflows or precision failures with extreme finite inputs may remain. The tool
+cannot repair an inaccurate input model fit: numerical conditioning depends on the
+data and their scaling. Independently verify edge cases; centre or rescale inputs when
+appropriate and retain the original analysis.
+
+Some extreme positive p-values are recovered on a log scale; when a probability
+underflows or a tail calculation is unavailable, zero is not an exact probability
+and the linter requests manual review. Student-t tail recovery uses floating-point
+quadrature in some cases and has not been proven accurate for all inputs. A critical
+value that does not invert its own reference tail within tolerance is rejected, which
+prevents some failures at exceptionally small degrees of freedom; this check alone
+cannot guarantee accuracy. Exact integer inputs that cannot be represented without
+loss as floats are refused, but pre-rounded floats and earlier model outputs cannot be
+recovered. Binary64 and input-model limitations still apply.
 
 ## 4. Input provenance
 

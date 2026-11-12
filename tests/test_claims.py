@@ -63,7 +63,9 @@ def test_importance_and_direction():
     assert check_sentence("The program produced a meaningful improvement.", pos).status == "no_warnings"
     assert check_sentence("The program produced a large decrease.", pos).level == "conflict"
     assert check_sentence("Scores were lower with the program.", pos).level == "conflict"
-    assert check_sentence("The program had a substantial effect.", ctx_for(0.3, 0.1)).level == "conflict"
+    # "Substantial" has no defined magnitude scale, so require review rather
+    # than equating it with an assertion of exceeding the SESOI.
+    assert check_sentence("The program had a substantial effect.", ctx_for(0.3, 0.1)).level == "check"
 
 
 def test_better_lower_flips_improvement_words():

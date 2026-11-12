@@ -15,16 +15,15 @@ importance, and it can flag common misreadings in a sentence you are about to wr
 > and the sentence linter's accuracy has not been measured. Use it as an aid to careful
 > reporting, not as a validator, and check its output. Reports of wrong results are very welcome.
 
-> **0.4.2 review branch — not a release.** Independent review of this branch found
-> errors in test binding, percentage-point conversion, negation scope and printed
-> threshold cut-offs. Changes addressing the reported examples have regression tests.
-> Follow-up AI review found additional numerical edge cases and remaining linter errors;
-> this is not independent human validation. Check the entire result and sentence
-> independently. See [KNOWN_ISSUES.md](KNOWN_ISSUES.md) for limitations and examples.
+> **0.4.2 experimental validation branch — not a release.** This branch adds targeted
+> fixes and regression tests based on real-data and numerical edge-case reviews.
+> The linter remains pattern-based and has not been validated on a human-annotated
+> independent test set. Check the whole result and sentence independently. See
+> [KNOWN_ISSUES.md](KNOWN_ISSUES.md) for remaining limitations.
 >
 > The `v0.4.2` tag in the install instructions below does not exist during branch
 > review. To try this branch, use
-> `pip install "git+https://github.com/Haifawaeedd/statwarrant@release-0.4.2"`.
+> `pip install "git+https://github.com/Haifawaeedd/statwarrant@fix/validation-observations"`.
 > Pin a commit if reproducing a review, since branch contents may change.
 
 It does not invent new statistics. It combines established methods (tests of
@@ -45,15 +44,9 @@ print(res)
 ```
 
 ```text
-The effect is positive (95% CI [0.997, 7.4]); whether it reaches the smallest effect size
-of interest (3 points) is not determined by these data. Scope: first-year students, one
-university, one term.
-Do not say: "There is no effect."; "The effect is practically important."; "The effect is
-large."; "The two conditions are equivalent."; "The effect generalizes to all settings.";
-"The results prove the effect is exactly the estimated value."
-Every threshold: an effect beyond ±d for any d below 0.9972 points; equivalence within ±d
-for any d above 7.403 points; neither from 0.9972520253676223 to 7.402747974632378 (exact
-cut-offs).
+The effect is positive (95% CI [0.997, 7.4] (endpoints rounded for display)); whether it reaches the smallest effect size of interest (3 points) is not determined by these data. Scope: first-year students, one university, one term.
+Do not say: "There is no effect."; "The effect is practically important."; "The two conditions are equivalent."; "The effect generalizes to all settings."; "The results prove the effect is exactly the estimated value."
+Every threshold: an effect beyond ±d for any d below 0.9972 points; equivalence within ±d for any d above 7.403 points; neither from 0.9972520253676211 to 7.402747974632379 (exact cut-offs).
 ```
 
 The result is statistically significant (p = 0.011), yet the declared 3-point threshold
@@ -70,8 +63,11 @@ print(res.check("The new method improved scores by about 4 points and is safe fo
     individual or case is affected, and the evidence comes from 'first-year students,
     one university, one term' only.
     Check: Limit the claim to the declared scope and to the average effect.
-  Consistent with the result: "improved" (direction); "by about 4" (magnitude).
-  Not checked: "The new method", "scores", "points and is safe", "students".
+  Consistent with the result: "improved" (direction); "by about 4 … points" (magnitude).
+  Not checked: "The new method", "scores", "and is safe", "students".
+  Unit checking is pattern-based and partial: a limited set of simple units adjacent to a
+  recognised effect or estimate are compared. Other units and conversions may be unchecked;
+  verify them by hand.
   A warning is a prompt for review, not proof that the sentence is false.
 ```
 
@@ -117,6 +113,26 @@ pip install "git+https://github.com/Haifawaeedd/statwarrant@v0.4.2"
 Pin the version you used, so your analysis can be reproduced. Requires Python 3.9+,
 NumPy and SciPy 1.11+. If the repository is private, Git must be authenticated with
 an account that has access.
+
+## Real-data regression example
+
+The tests include the historical Longley economic regression and compare its seven
+coefficients and standard errors with [NIST-certified reference values](https://www.itl.nist.gov/div898/strd/lls/data/LINKS/v-Longley.shtml).
+The p-values and confidence intervals are recomputed from those values using SciPy;
+NIST does not certify these derived quantities on that page, and statwarrant also
+uses SciPy. Five additional tests use **fixed summaries**, not fresh model fits,
+from Norris, Pontius, PlantGrowth, Iris and ChickWeight; their t-tail references
+were computed independently using mpmath. The tests use illustrative thresholds,
+not established practical standards. Run both groups with:
+
+```bash
+pip install -e ".[test]"
+pytest -q tests/test_nist_longley_validation.py tests/test_real_data_reference_summaries.py
+```
+
+These examples are not certification of all statistical methods or of the sentence
+linter. Longley's OLS model has strongly correlated predictors; interpretation of
+any estimate depends on the original data and model assumptions, not on statwarrant.
 
 ## Usage
 

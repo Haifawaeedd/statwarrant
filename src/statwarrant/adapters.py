@@ -9,11 +9,13 @@ instead of interpreting a different test from the one that was run.
 from __future__ import annotations
 
 import math
+from decimal import Decimal, InvalidOperation
+from fractions import Fraction
 from typing import Optional, Sequence, Tuple
 
 import numpy as np
 
-from ._core import _dist, critical_value
+from ._core import _dist, _log_tail, _tail_p, critical_value
 
 Triple = Tuple[float, float, Optional[float]]
 
@@ -23,7 +25,7 @@ class AdapterMismatch(ValueError):
 
 
 def _p_two_sided(est: float, se: float, df: Optional[float]) -> float:
-    return float(min(1.0, 2 * _dist(df).sf(abs(est) / se)))
+    return _tail_p(_dist(df), abs(est) / se, df, two_sided=True)
 
 
 def _scalar(x) -> Optional[float]:
@@ -37,15 +39,27 @@ def _scalar(x) -> Optional[float]:
 def _verify(est: float, se: float, df: Optional[float], reported_stat, reported_p, what: str) -> Optional[str]:
     """Stop unless statwarrant reproduces the original test statistic and p-value.
 
-    Both comparisons are relative, so they behave the same whatever the scale of the
-    data. A p-value too small to compare in floating point (below 1e-250) is checked
-    through the statistic alone.
+    Tiny positive p-values are compared using the reference distribution's log tail.
+    An exact source zero cannot be verified as a p-value, even when the statistic agrees.
     """
     advice = "Rather than interpret a different test, statwarrant stops here. Pass estimate=, se= and df= explicitly."
     stat, p = _scalar(reported_stat), _scalar(reported_p)
     if stat is None or p is None:
         raise AdapterMismatch(f"{what} does not report a finite test statistic and p-value, so statwarrant cannot "
                               f"check that it reads the same test. {advice}")
+    if p == 0.0:
+        # Do not turn a positive or negative extended-precision probability into
+        # a purported source zero when narrowing it to the public float format.
+        try:
+            original_p = np.asarray(reported_p).item()
+            if isinstance(original_p, str):
+                original_p = Decimal(original_p)
+            nonzero_before_conversion = original_p > 0 or original_p < 0
+        except (InvalidOperation, TypeError, ValueError):
+            nonzero_before_conversion = False
+        if nonzero_before_conversion:
+            raise AdapterMismatch(f"{what} reports a nonzero p-value that cannot be represented as a float, "
+                                  f"so statwarrant cannot verify it. {advice}")
     if not 0.0 <= p <= 1.0:
         raise AdapterMismatch(f"{what} reports p = {p!r}, which is not a probability. {advice}")
     mine_stat = est / se
@@ -54,24 +68,41 @@ def _verify(est: float, se: float, df: Optional[float], reported_stat, reported_
                               f"{mine_stat:.6g}), but the result reports statistic {stat:.6g}. {advice}")
     mine_p = _p_two_sided(est, se, df)
     if p == 0.0:
-        # A reported p of exactly 0 is an underflow somewhere; it cannot be compared.
-        # The statistic matched, so accept, but say that the p-value was not verified.
-        return (f"{what} reports p = 0 (an underflow), so only its test statistic could be verified; "
-                f"statwarrant computes p = {mine_p:.3g}.")
-    # Ordinary p-values are compared relatively; tiny ones (both below 1e-250) on the log
-    # scale, so 1e-260 and 1e-300 still disagree. Only exact underflow to zero is skipped.
-    tiny = max(mine_p, p) <= 1e-250
-    if tiny and min(mine_p, p) > 0:
-        disagree = not math.isclose(math.log(mine_p), math.log(p), rel_tol=1e-6)
-    elif tiny:
-        disagree = False
+        # Some implementations lose tiny tails to underflow or 1 - CDF cancellation.
+        # Retain compatibility only for tails near floating-point precision or smaller;
+        # a zero with an ordinary p is an unmistakable mismatch.
+        if mine_p > 1e-15:
+            raise AdapterMismatch(f"{what} reports p = 0, but statwarrant computes p = {mine_p:.6g}. {advice}")
+        computed = (f"p = {mine_p:.3g}" if mine_p else
+                    "a p-value that underflowed or is unavailable (not an exact zero)")
+        return (f"{what} reports p = 0, which could reflect numerical underflow or loss of precision, "
+                f"or an error or different computation. The p-value could not be verified; "
+                f"statwarrant computes {computed}.")
+    # Use logsf directly, not log(sf): sf can underflow while logsf remains finite.
+    if max(mine_p, p) <= 1e-250:
+        log_p = math.log(p)
+        log_mine = math.log(2.0) + _log_tail(_dist(df), abs(est) / se, df)
+        if not math.isfinite(log_mine):
+            return (f"{what} reports p = {p:.3g}, but the reference log-tail could not be computed; "
+                    "the reported p-value is unverified even though the statistic agrees.")
+        # A subnormal value can have substantial rounding error. Compare with its
+        # round-to-nearest bin as well as the existing logarithmic tolerance.
+        half_ulp_ratio = (math.ulp(p) / p) / 2
+        lower = log_p + math.log1p(-half_ulp_ratio)
+        upper = log_p + math.log1p(half_ulp_ratio)
+        tol = 1e-6 * max(abs(log_p), abs(log_mine))
+        disagree = log_mine < lower - tol or log_mine > upper + tol
     else:
         disagree = not math.isclose(mine_p, p, rel_tol=1e-6, abs_tol=0.0)
     if disagree:
+        computed = f"p = {mine_p:.6g}" if mine_p else "an underflowed or unavailable p-value (not exact zero)"
         raise AdapterMismatch(
             f"statwarrant reads {what} with {'a normal reference' if df is None else f'df {df:.6g}'}, giving "
-            f"p = {mine_p:.6g}, but the result reports p = {p:.6g}. {advice}"
+            f"{computed}, but the result reports p = {p:.6g}. {advice}"
         )
+    if mine_p == 0.0:
+        return (f"{what} reports p = {p:.3g}; its agreement was checked using the reference log tail, "
+                "but statwarrant's ordinary floating-point p-value underflows to 0.")
     return None
 
 
@@ -81,13 +112,26 @@ _EPS = float(np.finfo(float).eps)
 MAX_RECONSTRUCTION_ERROR = 1e-6
 
 
-def _reconstruction_error(lo: float, hi: float) -> float:
+def _source_epsilon(*values) -> float:
+    """Use at least binary64 epsilon, or the coarsest floating dtype in the source."""
+    eps = _EPS
+    for value in values:
+        try:
+            dtype = np.asarray(value).dtype
+            if np.issubdtype(dtype, np.floating):
+                eps = max(eps, float(np.finfo(dtype).eps))
+        except (TypeError, ValueError):
+            continue
+    return eps
+
+
+def _reconstruction_error(lo: float, hi: float, eps: float = _EPS) -> float:
     """Bound on the relative error of (hi - lo) when each endpoint carries rounding error.
 
     Endpoints far from zero relative to the interval's width (e.g. 1e14 +/- 0.3) lose
     most of their significant digits on subtraction.
     """
-    return 4 * _EPS * max(abs(lo), abs(hi)) / (hi - lo)
+    return 4 * eps * max(abs(lo), abs(hi)) / (hi - lo)
 
 
 def from_ci(lo: float, hi: float, level: float = 0.95, df: Optional[float] = None) -> Tuple[float, float]:
@@ -109,10 +153,10 @@ def from_ci(lo: float, hi: float, level: float = 0.95, df: Optional[float] = Non
     return (lo + hi) / 2, se
 
 
-def from_scipy(result, notes: Optional[list] = None) -> Tuple[float, float, Optional[float], float]:
+def from_scipy(result, notes: Optional[list] = None) -> Tuple[float, float, Optional[float], Optional[float]]:
     """scipy.stats t-test results (ttest_ind, ttest_rel, ttest_1samp).
 
-    Returns (estimate, se, df, null). The estimate is the difference the test
+    Returns (estimate, se, df, null), where null may be unknown. The estimate is the difference the test
     tested: for ``ttest_1samp(x, popmean)`` that is mean(x) - popmean, not mean(x).
     Needs SciPy >= 1.11, where these results expose ``df`` and ``confidence_interval()``.
     """
@@ -129,7 +173,9 @@ def from_scipy(result, notes: Optional[list] = None) -> Tuple[float, float, Opti
         raise ValueError("pass the result of a single test (one estimate), not a batch of tests") from exc
     if not (math.isfinite(lo) and math.isfinite(hi)) or hi <= lo:
         raise ValueError("one-sided t-tests are not supported; run the test with alternative='two-sided'")
-    err = _reconstruction_error(lo, hi)
+    source_eps = _source_epsilon(result.statistic, getattr(result, "_estimate", None),
+                                 getattr(result, "_standard_error", None), ci.low, ci.high)
+    err = _reconstruction_error(lo, hi, source_eps)
     se_ci = (hi - lo) / (2 * critical_value(0.95, df))
     mid = (lo + hi) / 2
     # SciPy keeps the standard error it computed from the data (a private attribute).
@@ -152,22 +198,41 @@ def from_scipy(result, notes: Optional[list] = None) -> Tuple[float, float, Opti
     else:
         se = se_ci
     stored_mean = _scalar(getattr(result, "_estimate", None))
-    if stored_mean is not None and abs(stored_mean - mid) > 1e-6 * se + 8 * _EPS * max(abs(lo), abs(hi)):
+    if stored_mean is not None and abs(stored_mean - mid) > 1e-6 * se + 8 * source_eps * max(abs(lo), abs(hi)):
         raise AdapterMismatch("SciPy's stored estimate is not the centre of its confidence interval. "
                               "Pass estimate=, se= and df= explicitly.")
-    # The statistic is (mean - null) / se, so the tested difference is statistic x se,
-    # whatever the scale of the data, and the null is what remains.
+    # SciPy does not retain popmean. Recover it approximately from its stored mean,
+    # if available, and the tested difference. Even exact cancellation cannot prove
+    # that the original null was zero: a sufficiently small null may have rounded away.
     est = stat * se
-    null = mid - est
-    # A zero null leaves only rounding noise here, of the order of machine precision times
-    # the largest quantity involved; anything larger is a real null value, kept as is.
-    noise = 64 * _EPS * max(abs(mid), abs(est), se)
-    if abs(null) <= noise:
+    centre = stored_mean if stored_mean is not None else mid
+    candidate = centre - est
+    # This is a conservative scale for rounding from subtraction and the statistic's
+    # division/multiplication, not a confidence interval for the original null.
+    noise = 4 * source_eps * max(abs(centre), abs(est), se)
+    if se_stored is None or se_stored <= 0:
+        noise += abs(est) * err
+    if stored_mean is None:
+        noise += 2 * source_eps * max(abs(lo), abs(hi))
+    if not math.isfinite(candidate) or not math.isfinite(noise):
+        raise ValueError("the test's null cannot be reconstructed at this scale; pass estimate= and se= directly")
+    if abs(candidate) > noise:
+        null = candidate
+        if notes is not None:
+            notes.append(f"The test's null was reconstructed as approximately {null:.12g}; SciPy does not store "
+                         f"the original null, and rounding may affect it at a scale of about ±{noise:.2g}.")
+    elif noise <= 1e-6 * se:
+        # Keep the conventional 0.0 for well-conditioned zero-null tests, but make
+        # the inferred (not known) status explicit in both notes and serialized input.
         null = 0.0
-        if noise > 1e-6 * se and notes is not None:
-            notes.append(f"At this data scale, the test's null value can only be resolved to within ±{noise:.2g}; it "
-                         f"is recorded as 0. If you tested against a small non-zero value, pass estimate= and se= "
-                         f"directly.")
+        if notes is not None:
+            notes.append(f"The test's null is inferred as approximately 0; SciPy does not store the original "
+                         f"null, so a nonzero null at the rounding scale (about ±{noise:.2g}) cannot be ruled out.")
+    else:
+        null = None
+        if notes is not None:
+            notes.append(f"The test's null cannot be reliably resolved at this data scale (rounding scale about "
+                         f"±{noise:.2g}); it is recorded as unknown, not assumed to be zero.")
     note = _verify(est, se, df, stat, getattr(result, "pvalue", None), f"this {type(result).__name__}")
     if note and notes is not None:
         notes.append(note)
@@ -207,7 +272,7 @@ def from_statsmodels(result, term, notes: Optional[list] = None) -> Triple:
     return est, se, df
 
 
-def from_result(result, term=None) -> Tuple[float, float, Optional[float], str, float, list]:
+def from_result(result, term=None) -> Tuple[float, float, Optional[float], str, Optional[float], list]:
     """(estimate, se, df, source label, null value, provenance notes)."""
     notes: list = []
     if hasattr(result, "params") and hasattr(result, "bse"):
@@ -215,8 +280,10 @@ def from_result(result, term=None) -> Tuple[float, float, Optional[float], str, 
         return est, se, df, f"statsmodels:{type(result).__name__}[{term}]", 0.0, notes
     est, se, df, null = from_scipy(result, notes)
     label = f"scipy:{type(result).__name__}"
-    if null != 0.0:
-        label += f" (difference from the test's null value {null:.6g})"
+    if null is None:
+        label += " (difference from an unknown test null)"
+    elif null != 0.0:
+        label += f" (difference from the test's null value {null:.6g}, reconstructed approximately)"
     return est, se, df, label, null, notes
 
 
@@ -233,26 +300,40 @@ def _is_missing(label) -> bool:
 def paired_differences(a: Sequence[float], b: Sequence[float]) -> np.ndarray:
     """a - b per item, as floats. Integer scores are subtracted exactly before conversion,
     so large integers (beyond 2**53) do not lose their differences."""
-    ra, rb = np.asarray(a), np.asarray(b)
+    # dtype=object is essential: NumPy can infer float64 for a mixed-sign list
+    # containing integers outside int64 and round the inputs before subtraction.
+    ra, rb = np.asarray(a, dtype=object), np.asarray(b, dtype=object)
     if ra.shape != rb.shape or ra.ndim != 1:
         raise ValueError("a and b must be 1-D sequences of the same length (one score per item)")
 
-    def integral(arr) -> bool:
-        if np.issubdtype(arr.dtype, np.integer) or np.issubdtype(arr.dtype, np.bool_):
-            return True
-        return arr.dtype == object and all(isinstance(v, (int, np.integer)) and not isinstance(v, bool)
-                                           for v in arr.tolist())
+    def exact(value):
+        if isinstance(value, (int, np.integer, bool, np.bool_)):
+            return Fraction(int(value))
+        if isinstance(value, np.floating):
+            if not np.isfinite(value):
+                raise ValueError("scores must be finite")
+            num, den = value.as_integer_ratio()
+            return Fraction(int(num), int(den))
+        try:
+            return Fraction(value)
+        except (TypeError, ValueError, OverflowError, ZeroDivisionError) as exc:
+            raise ValueError("scores must be finite numbers") from exc
 
-    if integral(ra) and integral(rb):
-        d = np.array([float(int(x) - int(y)) for x, y in zip(ra.tolist(), rb.tolist())], dtype=float)
-    else:
-        fa, fb = ra.astype(float), rb.astype(float)
-        if not (np.all(np.isfinite(fa)) and np.all(np.isfinite(fb))):
-            raise ValueError("scores must be finite")
-        d = fa - fb
-    if not np.all(np.isfinite(d)):
-        raise ValueError("score differences must be finite")
-    return d
+    differences = []
+    for x, y in zip(ra.tolist(), rb.tolist()):
+        diff = exact(x) - exact(y)
+        try:
+            converted = float(diff)
+        except (OverflowError, ValueError) as exc:
+            raise ValueError("score differences must be finite") from exc
+        if not math.isfinite(converted):
+            raise ValueError("score differences must be finite")
+        if diff and converted == 0.0:
+            raise ValueError("a score difference is too small to represent as a float")
+        if diff.denominator == 1 and int(converted) != diff.numerator:
+            raise ValueError("an integer score difference cannot be represented exactly as a float")
+        differences.append(converted)
+    return np.asarray(differences, dtype=float)
 
 
 def paired(a: Sequence[float], b: Sequence[float], cluster: Optional[Sequence] = None) -> Triple:
@@ -267,9 +348,15 @@ def paired(a: Sequence[float], b: Sequence[float], cluster: Optional[Sequence] =
     n = d.size
     if n < 2:
         raise ValueError("need at least two paired items")
-    mean = float(d.mean())
+    with np.errstate(over="ignore", invalid="ignore"):
+        mean = float(d.mean())
+    if not math.isfinite(mean):
+        raise ValueError("paired scores are too large for a finite mean; rescale the scores")
     if cluster is None:
-        se = float(d.std(ddof=1) / math.sqrt(n))
+        with np.errstate(over="ignore", invalid="ignore"):
+            se = float(d.std(ddof=1) / math.sqrt(n))
+        if not math.isfinite(se):
+            raise ValueError("paired scores are too large for a finite standard error; rescale the scores")
         if se == 0:
             raise ValueError("all paired differences are identical; the standard error is zero")
         return mean, se, float(n - 1)
@@ -290,7 +377,13 @@ def paired(a: Sequence[float], b: Sequence[float], cluster: Optional[Sequence] =
     if G < 2:
         raise ValueError("need at least two clusters")
     sums = np.fromiter(groups.values(), dtype=float)
-    se = float(math.sqrt(np.sum(sums**2) * G / (G - 1)) / n)
+    with np.errstate(over="ignore", invalid="ignore"):
+        squared_sum = float(np.sum(sums**2))
+    if not math.isfinite(squared_sum):
+        raise ValueError("paired scores are too large for a finite standard error; rescale the scores")
+    se = float(math.sqrt(squared_sum * G / (G - 1)) / n)
+    if not math.isfinite(se):
+        raise ValueError("paired scores are too large for a finite standard error; rescale the scores")
     if se == 0:
         raise ValueError("the cluster-robust standard error is zero")
     return mean, se, float(G - 1)

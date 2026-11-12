@@ -41,7 +41,8 @@ CORPUS = {
     "There was no increase in scores.": "BBBBBN",
     "The effect is negative and statistically significant.": "BBBBBA",
     "Scores increased for every student.": "BBBBBB",
-    "The program had a huge effect.": "NBBBBN",
+    # A SESOI is not a definition of "huge"; the scale needs review in every scenario.
+    "The program had a huge effect.": "NNNNNN",
 }
 
 

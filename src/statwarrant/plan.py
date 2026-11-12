@@ -11,6 +11,7 @@ import hashlib
 import json
 import math
 from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal
+from numbers import Number as Numeric
 
 import numpy as np
 from dataclasses import dataclass, field, replace
@@ -19,8 +20,9 @@ from typing import Optional, Sequence, Tuple, Union
 
 from . import adapters
 from ._core import MIN_ALPHA, POLICIES, Evidence, Thresholds, evaluate, level_text
+from ._precision import checked_float
 from ._version import __version__
-from .claims import CheckResult, Claims, Context, build_claims, check_sentence, fmt
+from .claims import CheckResult, Claims, Context, build_claims, check_sentence, fmt, fmt_bound, fmt_bounds, fmt_ci, fmt_p
 from .design import DesignTable, design_table
 
 # An estimate given with an interval may differ from the interval's midpoint by
@@ -61,7 +63,7 @@ def _raw(x):
         return None
     try:
         v = float(x)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return str(x)
     return v if math.isfinite(v) else str(v)
 
@@ -127,10 +129,22 @@ class Plan:
         ``baseline`` is the reference level of the outcome, used to report the
         absolute and the relative change side by side. ``label`` names this
         result (e.g. "H1, main effect") so sentences and reports point to it.
+
+        Explicit integral inputs that cannot be represented exactly as floats
+        are refused. Numbers already rounded to floats cannot be recovered.
         """
         given = sum(x is not None for x in (result, se, ci))
         if given != 1:
             raise ValueError("give exactly one of: a fitted result, se=..., or ci=(lower, upper)")
+
+        if baseline is not None:
+            checked_float(baseline, "baseline")
+        est_input = checked_float(estimate, "estimate") if result is None and estimate is not None else None
+        se_input = checked_float(se, "se") if se is not None else None
+        df_input = checked_float(df, "df") if result is None and df is not None else None
+        if ci is not None:
+            lo = checked_float(ci[0], "ci lower bound")
+            hi = checked_float(ci[1], "ci upper bound")
 
         null = 0.0
         provenance: list = []
@@ -146,26 +160,25 @@ class Plan:
             raw = {"result_type": type(result).__name__, "term": None if term is None else str(term),
                    "reported_statistic": rep_stat, "reported_p": rep_p, "baseline": raw["baseline"]}
         elif ci is not None:
-            lo, hi = float(ci[0]), float(ci[1])
-            mid, s = adapters.from_ci(lo, hi, ci_level, df)
+            mid, s = adapters.from_ci(lo, hi, ci_level, df_input)
             if estimate is not None:
-                gap = abs(float(estimate) - mid)
+                gap = abs(est_input - mid)
                 half = (hi - lo) / 2
-                if not math.isfinite(float(estimate)) or gap > SYMMETRY_TOLERANCE * half:
+                if not math.isfinite(est_input) or gap > SYMMETRY_TOLERANCE * half:
                     raise ValueError(
-                        f"the interval ({fmt(lo)}, {fmt(hi)}) is not symmetric around the estimate {fmt(float(estimate))} "
+                        f"the interval ({fmt(lo)}, {fmt(hi)}) is not symmetric around the estimate {fmt(est_input)} "
                         f"(midpoint {fmt(mid)}). statwarrant reads intervals as estimate +/- critical value x SE, so an "
                         f"asymmetric interval would be misread. For ratios (odds, risk, hazard) give the log estimate "
                         f"and log interval; otherwise pass estimate= and se= directly."
                     )
             est = mid
-            d = None if df is None else float(df)
+            d = df_input
             source = f"interval ({level_text(ci_level)})"
         else:
             if estimate is None:
                 raise ValueError("estimate= is required together with se=")
-            est, s = float(estimate), float(se)
-            d = None if df is None else float(df)
+            est, s = est_input, se_input
+            d = df_input
             source = "estimate and standard error"
 
         res = self._finish(est, s, d, source, baseline, null, label, raw)
@@ -185,6 +198,8 @@ class Plan:
         label: Optional[str] = None,
     ) -> "Result":
         """Item-level paired scores, e.g. model A and model B on the same test questions (A - B)."""
+        if baseline is not None:
+            checked_float(baseline, "baseline")
         est, s, d = adapters.paired(a, b, cluster)
         source = "paired item scores" + (" (cluster-robust SE)" if cluster is not None else "")
         differing = int(np.count_nonzero(adapters.paired_differences(a, b)))
@@ -199,10 +214,10 @@ class Plan:
                 f"it. Check it with an exact method for paired data (e.g. an exact interval on the discordant items)."))
         return res
 
-    def _finish(self, est, s, d, source, baseline, null: float = 0.0, label: Optional[str] = None,
+    def _finish(self, est, s, d, source, baseline, null: Optional[float] = 0.0, label: Optional[str] = None,
                 raw: Optional[dict] = None) -> "Result":
         if baseline is not None:
-            baseline = float(baseline)
+            baseline = checked_float(baseline, "baseline")
             if not math.isfinite(baseline) or baseline == 0:
                 raise ValueError("baseline must be a finite, non-zero number (a relative change needs a non-zero reference)")
         ev = evaluate(est, s, d, self.alpha, self.interval_policy, self.sesoi)
@@ -213,9 +228,9 @@ class Plan:
                                  "Rescale the outcome or omit the baseline.")
         ctx = Context(ev, self.units, self.scope, self.better, baseline, self.outcome)
         claims = build_claims(ctx)
-        if null != 0.0:
+        if null is not None and null != 0.0:
             claims.notes.insert(0, f"The effect is the difference from the test's null value {null:.12g} "
-                                   f"(the estimate {est:.12g} is {est + null:.12g} minus {null:.12g}).")
+                                   f"(approximately reconstructed: {est:.12g} is {est + null:.12g} minus {null:.12g}).")
         return Result(plan=self, evidence=ev, context=ctx, claims=claims, source=source, null=null, label=label,
                       raw_input=raw or {})
 
@@ -323,12 +338,15 @@ def declare(
                 "a smallest effect size of interest needs a stated reason: pass sesoi_source='...' "
                 "(e.g. 'smallest change teachers consider worth acting on')"
             )
-        if isinstance(sesoi, (int, float)):
-            if not (math.isfinite(sesoi) and sesoi > 0):
+        if isinstance(sesoi, Numeric) or (isinstance(sesoi, np.ndarray) and sesoi.ndim == 0):
+            value = checked_float(sesoi, "sesoi")
+            if not (math.isfinite(value) and value > 0):
                 raise ValueError("a single sesoi value must be a finite positive number; it means (-sesoi, +sesoi)")
-            bounds = (-float(sesoi), float(sesoi))
+            bounds = (-value, value)
         else:
-            low, high = (float(x) for x in sesoi)
+            low, high = sesoi
+            low = checked_float(low, "sesoi lower bound")
+            high = checked_float(high, "sesoi upper bound")
             if not (math.isfinite(low) and math.isfinite(high) and low < 0 < high):
                 raise ValueError("sesoi bounds must be finite and satisfy low < 0 < high")
             bounds = (low, high)
@@ -355,7 +373,7 @@ class Result:
     context: Context
     claims: Claims
     source: str
-    null: float = 0.0
+    null: Optional[float] = 0.0
     label: Optional[str] = None
     raw_input: dict = field(default_factory=dict)
     checked: list = field(default_factory=list)
@@ -387,6 +405,8 @@ class Result:
             "Whether the model behind the estimate and standard error is appropriate "
             "(statwarrant assumes a normal or t reference distribution).",
             "Data quality and the analysis choices made before the estimate.",
+            "Units and conversions in checked sentences: unit checks are pattern-based and partial; "
+            "units and conversions may be unchecked and need independent review.",
         ]
         items.append("That the plan was declared before the data were seen. The fingerprint is evidence only if it was "
                      "registered with a third party before the analysis.")
@@ -445,7 +465,8 @@ class Result:
         u = f" {self.plan.units}" if self.plan.units else ""
         out = []
         if th.met_below is None:
-            out.append(f"- No threshold gives an effect beyond it: the {level_text(th.met_level)} interval includes zero.")
+            out.append("- No positive threshold gives an effect beyond it: the difference from zero is not "
+                       "established at the declared significance level.")
         else:
             out.append(f"- An effect larger than ±d is established for every threshold d below "
                        f"**{fmt_down(th.met_below)}{u}** ({level_text(th.met_level)} interval; cut-off ≈ "
@@ -463,7 +484,7 @@ class Result:
         if pos is not None:
             words = {"exceeds": "the effect exceeds it", "equivalent": "equivalence is established",
                      "undetermined": "neither is established"}[pos]
-            out.append(f"- Your declared threshold (±{fmt(self.plan.sesoi[1])}{u}): {words}.")
+            out.append(f"- Your declared threshold (±{fmt_bound(self.plan.sesoi[1])}{u}): {words}.")
         elif self.plan.sesoi is not None:
             out.append("- Your declared bounds are asymmetric; see the tests above.")
         return out
@@ -480,7 +501,7 @@ class Result:
         lines.append(f"- **Input:** {self.source}")
         lines += ["", "### Declared plan (timing not verified)"]
         if p.sesoi:
-            lines.append(f"- **Smallest effect size of interest:** [{fmt(p.sesoi[0])}, {fmt(p.sesoi[1])}], "
+            lines.append(f"- **Smallest effect size of interest:** {fmt_bounds(*p.sesoi)}, "
                          f"because: {p.sesoi_source}")
         else:
             lines.append("- **Smallest effect size of interest:** none declared")
@@ -493,20 +514,21 @@ class Result:
                      f"{'' if ev.df is None else f', df {fmt(ev.df)}'}).")
         lines += ["", "| Test | Interval | p-value | Decision |", "| --- | --- | --- | --- |"]
         lo, hi = ev.zero_interval
-        lines.append(f"| Differs from zero | {level_text(ev.zero_level)} [{fmt(lo)}, {fmt(hi)}] | {fmt(ev.p_zero)} | "
+        lines.append(f"| Differs from zero | {level_text(ev.zero_level)} {fmt_ci(lo, hi)} | {fmt_p(ev.p_zero)} | "
                      f"{'yes' if ev.differs_from_zero else 'not established'} |")
         if p.sesoi:
             elo, ehi = ev.equivalence_interval
             mlo, mhi = ev.met_interval
-            lines.append(f"| Equivalent (TOST) | {level_text(ev.equivalence_level)} [{fmt(elo)}, {fmt(ehi)}] | "
-                         f"{fmt(ev.p_equivalence)} (one-sided, vs {fmt(ev.equivalence_threshold)}) | "
+            lines.append(f"| Equivalent (TOST) | {level_text(ev.equivalence_level)} {fmt_ci(elo, ehi)} | "
+                         f"{fmt_p(ev.p_equivalence)} (one-sided, vs {fmt(ev.equivalence_threshold)}) | "
                          f"{'yes' if ev.equivalent else 'not established'} |")
-            lines.append(f"| Exceeds SESOI (MET) | {level_text(ev.met_level)} [{fmt(mlo)}, {fmt(mhi)}] | "
-                         f"{fmt(ev.p_minimal_effect)} (one-sided, vs {fmt(ev.met_threshold)}) | "
+            lines.append(f"| Exceeds SESOI (MET) | {level_text(ev.met_level)} {fmt_ci(mlo, mhi)} | "
+                         f"{fmt_p(ev.p_minimal_effect)} (one-sided, vs {fmt(ev.met_threshold)}) | "
                          f"{'yes' if ev.exceeds_sesoi else 'not established'} |")
         lines += ["", "### Every threshold at once", ""]
-        lines.append("A re-reading of the same intervals, not new tests. Choosing a threshold after seeing these "
-                     "numbers is not a confirmatory claim.")
+        lines.append("Computed from the same estimate and standard error, not new tests. Decisions use test-statistic "
+                     "arithmetic, not rounded display endpoints. Choosing a threshold after seeing these numbers "
+                     "is not a confirmatory claim.")
         lines.append("")
         lines += self._threshold_lines()
         lines += ["", "### You can say"]

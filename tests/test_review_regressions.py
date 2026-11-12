@@ -127,7 +127,7 @@ def test_review_sentences_are_blocked(tight, sentence):
 
 
 def test_unverified_large_number_is_blocked():
-    res = sw.declare(sesoi=3, sesoi_source="teachers").analyze(estimate=4.2, se=1.6, df=58)
+    res = sw.declare(sesoi=3, sesoi_source="teachers", units="points").analyze(estimate=4.2, se=1.6, df=58)
     assert res.check("The new method improved scores by 100 points.").level == "conflict"
     assert res.check("The new method improved scores by about 4 points.").status == "no_warnings"
 

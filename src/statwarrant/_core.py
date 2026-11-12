@@ -27,10 +27,15 @@ Version 0.1.0 also ran the minimal-effect test at alpha per side under
 from __future__ import annotations
 
 import math
+import struct
+import sys
+import warnings
 from dataclasses import dataclass, field, replace
 from typing import Optional, Tuple
 
-from scipy import stats
+from scipy import integrate, special, stats
+
+from ._precision import checked_float
 
 POLICIES = ("single", "standard")
 MIN_ALPHA = 1e-10
@@ -58,11 +63,89 @@ def _dist(df: Optional[float]):
     return stats.t(df)
 
 
+def _log_t_tail(x: float, df: float) -> float:
+    """Log one-sided Student t tail, including when SciPy's sf/logsf underflow.
+
+    Integrate the density on a log-distance scale, factoring out its value at x.
+    This avoids forming x*x, the tiny tail, or a huge unscaled integral. It is
+    used only in the subnormal/zero tail region, not for ordinary decisions.
+    """
+    if not (math.isfinite(x) and x > 1 and math.isfinite(df) and df > 0):
+        return -math.inf
+    try:
+        ratio = math.sqrt(df) / x
+        w = 1.0 / (1.0 + ratio * ratio)
+        k = (df + 1.0) * w - 1.0
+        if not (0 < w <= 1 and math.isfinite(k) and k > 0):
+            return -math.inf
+        r = 2 * math.log(x) - math.log(df)
+        log1pr = math.log1p(math.exp(r)) if r < 0 else r + math.log1p(math.exp(-r))
+        logpdf = -math.log(df) / 2 - float(special.betaln(0.5, df / 2)) - (df / 2 + 0.5) * log1pr
+
+        def integrand(u):
+            v = u / k
+            if v < 300:
+                delta = math.log1p(w * math.expm1(2 * v))
+            else:
+                delta = 2 * v + math.log(w + (1 - w) * math.exp(-2 * v))
+            exponent = v - (df / 2 + 0.5) * delta
+            return math.exp(exponent) if exponent > -746 else 0.0
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", integrate.IntegrationWarning)
+            integral, error = integrate.quad(integrand, 0, math.inf, epsabs=1e-11, epsrel=1e-11, limit=150)
+        if not (math.isfinite(integral) and integral > 0 and error <= 1e-9 * integral):
+            return -math.inf
+        result = logpdf + math.log(x) - math.log(k) + math.log(integral)
+        return result if math.isfinite(result) and result <= 0 else -math.inf
+    except (ArithmeticError, ValueError, integrate.IntegrationWarning):
+        return -math.inf
+
+
+def _log_tail(dist, x: float, df: Optional[float]) -> float:
+    """Log sf, with a fallback where SciPy's Student t logsf loses the tail."""
+    log_sf = float(dist.logsf(x))
+    if df is not None and (not math.isfinite(log_sf) or log_sf < math.log(sys.float_info.min)):
+        recovered = _log_t_tail(x, df)
+        if math.isfinite(recovered):
+            return recovered
+    return log_sf
+
+
+def _tail_p(dist, x: float, df: Optional[float], two_sided: bool = False) -> float:
+    """Use ordinary sf except in the extreme tail; multiply on the log scale there."""
+    sf = float(dist.sf(x))
+    if sf >= sys.float_info.min:
+        return min(1.0, sf * (2 if two_sided else 1))
+    log_sf = _log_tail(dist, x, df)
+    if math.isfinite(log_sf):
+        return min(1.0, math.exp(log_sf + (math.log(2.0) if two_sided else 0.0)))
+    # The log tail may itself be unavailable; retain any nonzero SciPy result.
+    return min(1.0, sf * (2 if two_sided else 1))
+
+
+def _critical_from_tail(tail: float, df: Optional[float]) -> float:
+    """Refuse a critical value if the distribution cannot invert its own tail.
+
+    Some SciPy versions return a finite but grossly inaccurate Student-t isf
+    for extraordinarily small df. A self-consistency check prevents reporting
+    an inference based on that result; it is not proof of general accuracy.
+    """
+    dist = _dist(df)
+    c = float(dist.isf(tail))
+    if not math.isfinite(c) or c < 0:
+        raise ValueError("the reference distribution's critical value is not finite; check df and alpha")
+    observed_tail = float(dist.sf(c))
+    if not math.isfinite(observed_tail) or not math.isclose(observed_tail, tail, rel_tol=1e-6, abs_tol=0.0):
+        raise ValueError("the reference distribution's critical value cannot be verified for this df and alpha")
+    return c
+
+
 def critical_value(two_sided_level: float, df: Optional[float]) -> float:
     """Critical value for a two-sided interval at ``two_sided_level`` (e.g. 0.95)."""
     if not 0 < two_sided_level < 1:
         raise ValueError("interval level must be between 0 and 1")
-    return float(_dist(df).isf((1 - two_sided_level) / 2))
+    return _critical_from_tail((1 - two_sided_level) / 2, df)
 
 
 def interval(estimate: float, se: float, level: float, df: Optional[float]) -> Tuple[float, float]:
@@ -72,7 +155,7 @@ def interval(estimate: float, se: float, level: float, df: Optional[float]) -> T
 
 def _interval_tail(estimate: float, se: float, tail: float, df: Optional[float]) -> Tuple[float, float]:
     """Interval whose two tails each hold ``tail``; uses the survival function, stable for tiny alpha."""
-    c = float(_dist(df).isf(tail))
+    c = _critical_from_tail(tail, df)
     return (estimate - c * se, estimate + c * se)
 
 
@@ -83,14 +166,17 @@ class Thresholds:
     Both tests are read from intervals, so the whole sensitivity to the choice of
     threshold is fixed by two numbers:
 
-    * ``met_below``: an effect beyond +/-d is established for every d below this
-      value (the end of the (1 - alpha) interval nearest zero); None when that
-      interval contains zero.
+    * ``met_below``: an effect beyond +/-d is established for every positive
+      representable d below this value; None when the zero test is not established.
     * ``equivalence_above``: equivalence within +/-d is established for every d
-      above this value (the end of the equivalence interval farthest from zero).
+      above this value, among positive finite representable thresholds.
 
-    Both cut-offs are strict: at exactly ``met_below`` or ``equivalence_above`` the
-    decision is "undetermined". For thresholds in between, neither is established. This re-reads the same
+    Both cut-offs are strict: at a positive finite cut-off the decision is
+    "undetermined", and between the cut-offs neither is established. At the
+    domain limits the open side can be empty: ``met_below`` can be the smallest
+    positive float, or ``equivalence_above`` the largest finite float. Conversely,
+    ``equivalence_above`` can be zero if all positive finite floats are equivalent;
+    zero is not itself a valid input to :meth:`decision`. This re-reads the same
     intervals; it is not a family of new tests, and choosing a threshold after
     seeing these numbers is not a confirmatory claim.
     """
@@ -111,6 +197,7 @@ class Thresholds:
         Computed like evaluate(): the bound is subtracted from the estimate before
         dividing by the standard error, which keeps precision near a cut-off.
         """
+        d = checked_float(d, "threshold")
         if not (math.isfinite(d) and d > 0):
             raise ValueError("a threshold must be a finite positive number")
         if (abs(self.estimate) - d) / self.se > self.met_critical:
@@ -172,12 +259,12 @@ class Evidence:
         eq_tail = self.alpha / 2 if self.policy == "single" else self.alpha
         eq_level = 1 - 2 * eq_tail
         elo, ehi = _interval_tail(self.estimate, self.se, eq_tail, self.df)
-        dist = _dist(self.df)
         th = Thresholds(met_below, self.zero_level, max(abs(elo), abs(ehi)), eq_level,
-                        self.estimate, self.se, float(dist.isf(self.alpha / 2)), float(dist.isf(eq_tail)))
-        # The cut-offs above come from interval arithmetic, decision() from test statistics;
-        # they can differ in the last bits. Move each cut-off to the exact value at which
-        # decision() changes, so the printed cut-offs never contradict it.
+                        self.estimate, self.se, _critical_from_tail(self.alpha / 2, self.df),
+                        _critical_from_tail(eq_tail, self.df))
+        # Interval and test-statistic arithmetic can diverge by many floats near
+        # cancellation. Find the exact transitions of decision(), not just nearby
+        # interval endpoints, so the printed cut-offs cannot contradict it.
         return replace(th, met_below=None if met_below is None else _edge(th, met_below, "exceeds", below=True),
                        equivalence_above=_edge(th, th.equivalence_above, "equivalent", below=False))
 
@@ -207,6 +294,8 @@ class Evidence:
             "claim_class": self.claim_class,
             "level_conflict": self.level_conflict,
         }
+        if self.p_zero == 0.0:
+            out["zero_test"]["p_value_underflow_or_unavailable"] = True
         if self.sesoi is not None:
             out["equivalence_test"] = {
                 "interval_level": self.equivalence_level,
@@ -222,27 +311,66 @@ class Evidence:
                 "p_value": self.p_minimal_effect,
                 "exceeds_sesoi": self.exceeds_sesoi,
             }
+            if self.p_equivalence == 0.0:
+                out["equivalence_test"]["p_value_underflow_or_unavailable"] = True
+            if self.p_minimal_effect == 0.0:
+                out["minimal_effect_test"]["p_value_underflow_or_unavailable"] = True
         return out
 
 
-def _edge(th: "Thresholds", start: float, label: str, below: bool, max_steps: int = 4096) -> float:
-    """The exact floating-point cut-off c with decision(c) != label and, on the open side,
-    decision(next value) == label ("exceeds" below c, "equivalent" above c)."""
-    away = -math.inf if below else math.inf
-    toward = math.inf if below else -math.inf
-    c = start
-    for _ in range(max_steps):  # c itself must not carry the label
-        if c > 0 and th.decision(c) == label:
-            c = math.nextafter(c, toward)
+_MAX_FINITE_BITS = 0x7FEFFFFFFFFFFFFF
+
+
+def _positive_float(bits: int) -> float:
+    """Decode a nonnegative finite IEEE-754 binary64 by its ordered bit pattern."""
+    return struct.unpack(">d", struct.pack(">Q", bits))[0]
+
+
+def _edge(th: "Thresholds", start: float, label: str, below: bool) -> float:
+    """Find the strict boundary on the positive finite binary64 domain.
+
+    For MET, the labelled region is a prefix; return its first non-labelled
+    float. For equivalence, the labelled region is a suffix; return its last
+    non-labelled float. Rounded subtraction and division by a positive SE are
+    monotone, so both predicates are monotone on this domain. A zero sentinel
+    represents an empty non-labelled prefix; the largest finite float represents
+    an empty labelled suffix. No decision is ever requested for zero or infinity.
+    """
+    # Most interval-derived guesses are already adjacent to the transition.
+    # Check the invariant, rather than assuming a small rounding discrepancy.
+    if math.isfinite(start) and start >= 0:
+        if start > 0 and th.decision(start) == label:
+            candidate = math.nextafter(start, math.inf if below else 0.0)
+            if candidate == 0.0 and not below:
+                return 0.0
+            if math.isfinite(candidate) and candidate > 0 and th.decision(candidate) != label:
+                return candidate
+        elif start > 0 or not below:
+            neighbor = math.nextafter(start, 0.0 if below else math.inf)
+            if (below and neighbor == 0.0) or (not below and not math.isfinite(neighbor)):
+                return start
+            if neighbor > 0 and math.isfinite(neighbor) and th.decision(neighbor) == label:
+                return start
+
+    # Nonnegative binary64 encodings have the same order as their values. For
+    # MET, lo is labelled (or the zero sentinel), and hi is not labelled: max
+    # is never labelled because abs(estimate) <= max. For equivalence, lo is
+    # unlabelled (or zero), and hi is labelled (or the MAX+1 sentinel). The
+    # sentinels are never passed to decision. Each iteration maintains those
+    # invariants and halves an integer range smaller than 2**63; 63 suffice.
+    lo, hi = (0, _MAX_FINITE_BITS) if below else (0, _MAX_FINITE_BITS + 1)
+    for _ in range(63):
+        if hi - lo == 1:
+            return _positive_float(hi if below else lo)
+        mid = (lo + hi) // 2
+        is_labelled = th.decision(_positive_float(mid)) == label
+        if is_labelled == below:
+            lo = mid
         else:
-            break
-    for _ in range(max_steps):  # the next value outward must carry it
-        nxt = math.nextafter(c, away)
-        if nxt > 0 and th.decision(nxt) != label:
-            c = nxt
-        else:
-            break
-    return c
+            hi = mid
+    if hi - lo == 1:
+        return _positive_float(hi if below else lo)
+    raise RuntimeError("could not establish a finite threshold boundary")
 
 
 def evaluate(
@@ -256,6 +384,12 @@ def evaluate(
     """Run the three tests and classify the result."""
     if policy not in POLICIES:
         raise ValueError(f"interval_policy must be one of {POLICIES}, got {policy!r}")
+    estimate = checked_float(estimate, "estimate")
+    se = checked_float(se, "se")
+    df = None if df is None else checked_float(df, "df")
+    if sesoi is not None:
+        low, high = sesoi
+        sesoi = (checked_float(low, "sesoi lower bound"), checked_float(high, "sesoi upper bound"))
     if not (math.isfinite(estimate) and math.isfinite(se)):
         raise ValueError("estimate and se must be finite numbers")
     if se <= 0:
@@ -274,9 +408,9 @@ def evaluate(
     # decision and its p-value in agreement even when estimate and bound are large and close.
     dist = _dist(df)
     zero_level = 1 - alpha
-    c_zero = float(dist.isf(alpha / 2))
+    c_zero = _critical_from_tail(alpha / 2, df)
     zero_iv = _interval_tail(estimate, se, alpha / 2, df)
-    p_zero = float(min(1.0, 2 * dist.sf(abs(estimate) / se)))
+    p_zero = _tail_p(dist, abs(estimate) / se, df, two_sided=True)
     differs = abs(estimate) / se > c_zero
     if not all(math.isfinite(v) for v in zero_iv):
         raise ValueError("the estimate or standard error is too large for floating point; rescale the outcome")
@@ -302,11 +436,11 @@ def evaluate(
     eq_threshold = alpha / 2 if policy == "single" else alpha
     eq_level = 1 - 2 * eq_threshold
     eq_iv = _interval_tail(estimate, se, eq_threshold, df)
-    c_eq = float(dist.isf(eq_threshold))
+    c_eq = _critical_from_tail(eq_threshold, df)
     z_low, z_high = (estimate - low) / se, (high - estimate) / se
     if not (math.isfinite(z_low) and math.isfinite(z_high) and all(math.isfinite(v) for v in eq_iv)):
         raise ValueError("the inputs are too large for floating point; rescale the outcome and the SESOI")
-    p_eq = float(max(dist.sf(z_low), dist.sf(z_high)))
+    p_eq = max(_tail_p(dist, z_low, df), _tail_p(dist, z_high, df))
     equivalent = z_low > c_eq and z_high > c_eq
 
     # Minimal effect (MET): reject H0: low <= theta <= high in either direction,
@@ -314,7 +448,7 @@ def evaluate(
     met_threshold = alpha / 2
     met_level = 1 - alpha
     met_iv = zero_iv
-    p_met = float(min(dist.sf(-z_high), dist.sf(-z_low)))
+    p_met = min(_tail_p(dist, -z_high, df), _tail_p(dist, -z_low, df))
     met_pos = -z_high > c_zero
     met_neg = -z_low > c_zero
     exceeds = met_pos or met_neg

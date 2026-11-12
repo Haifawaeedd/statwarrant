@@ -26,8 +26,9 @@ from __future__ import annotations
 
 import math
 import re
+import sys
 from dataclasses import dataclass, field
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Dict, List, Optional, Tuple
 
 from ._core import Evidence, level_text
@@ -45,6 +46,53 @@ def fmt(x: float) -> str:
         return "0"
     s = format(x, ".3g")
     return "0" if s in ("-0", "0") else s
+
+
+def fmt_bound(x: float) -> str:
+    """Shortest readable decimal that round-trips to the declared binary64 value."""
+    s = repr(float(x)).replace("e+", "e")
+    return s[:-2] if s.endswith(".0") else s
+
+
+def fmt_bounds(low: float, high: float) -> str:
+    """Declared SESOI bounds, without rounding them to different floats."""
+    return f"[{fmt_bound(low)}, {fmt_bound(high)}]"
+
+
+def fmt_p(x: float, precision: int = 3) -> str:
+    """Do not present a floating-point tail that became zero as an exact p=0."""
+    return "underflow or unavailable (not exact zero)" if x == 0 else format(x, f".{precision}g")
+
+
+def fmt_interval(lo: float, hi: float) -> str:
+    """Format distinct finite endpoints without rounding both to one number.
+
+    Add digits only when compact formatting collapses a nonzero-width interval.
+    Like all displayed intervals, these endpoints are still rounded for display.
+    """
+    a, b = fmt(lo), fmt(hi)
+    if lo < hi and float(a) >= float(b):
+        for precision in range(4, 18):
+            a, b = format(lo, f".{precision}g"), format(hi, f".{precision}g")
+            if float(a) < float(b):
+                break
+    return f"[{a.replace('e+', 'e')}, {b.replace('e+', 'e')}]"
+
+
+def fmt_ci(lo: float, hi: float) -> str:
+    """Qualify display rounding or a width lost at machine precision."""
+    interval = fmt_interval(lo, hi)
+    if lo == hi:
+        return (f"{interval} (endpoints rounded for display; computed endpoints coincide at machine "
+                "precision, so interval width is unresolved)")
+    return f"{interval} (endpoints rounded for display)"
+
+
+def _fmt_percent(x: float) -> str:
+    """Keep ordinary formatting without overflowing finite ratios."""
+    if math.isfinite(x) and not math.isfinite(x * 100):
+        return format(Decimal.from_float(x) * 100, "+.3g") + "%"
+    return f"{x:+.1%}"
 
 
 @dataclass(frozen=True)
@@ -94,6 +142,9 @@ _NO_PATTERN_NOTE = (
     "generalisation, certainty, causal or Bayesian wording, p-values, intervals, percentages and other numbers."
 )
 
+_UNIT_NOTE = ("Unit checking is pattern-based and partial: a limited set of simple units adjacent to a recognised "
+              "effect or estimate are compared. Other units and conversions may be unchecked; verify them by hand.")
+
 
 @dataclass(frozen=True)
 class CheckResult:
@@ -129,6 +180,7 @@ class CheckResult:
             lines.append(f"  Checked against result: {self.label}")
         if not self.parts:
             lines.append("  " + _NO_PATTERN_NOTE)
+            lines.append("  " + _UNIT_NOTE)
             return "\n".join(lines)
         for p in self.warnings:
             lines.append(f"  - {p.status:<8} {p.rule:<22} \"{p.text}\": {p.reason}")
@@ -138,7 +190,8 @@ class CheckResult:
         if ok:
             lines.append("  Consistent with the result: " + "; ".join(f"\"{p.text}\" ({p.rule})" for p in ok) + ".")
         if self.unchecked:
-            lines.append("  Not checked: " + ", ".join(f"\"{u}\"" for u in self.unchecked) + ".")
+            lines.append("  Not checked: " + ", ".join(f'"{u}"' for u in self.unchecked) + ".")
+        lines.append("  " + _UNIT_NOTE)
         if self.status == "no_warnings":
             lines.append("  No warning is not a clearance: only the recognised parts were checked.")
         else:
@@ -154,6 +207,7 @@ class CheckResult:
             "warnings": [p.to_dict() for p in self.warnings],
             "consistent": [p.to_dict() for p in self.parts if p.status == CONSISTENT],
             "unchecked": list(self.unchecked),
+            "unit_check_note": _UNIT_NOTE,
         }
 
 
@@ -171,6 +225,9 @@ class Context:
     def u(self, x: float) -> str:
         return f"{fmt(x)} {self.units}" if self.units else fmt(x)
 
+    def bound_u(self, x: float) -> str:
+        return f"{fmt_bound(x)} {self.units}" if self.units else fmt_bound(x)
+
     def ci_text(self, which: str = "zero") -> str:
         ev = self.evidence
         if which == "equivalence" and ev.equivalence_interval is not None:
@@ -179,7 +236,7 @@ class Context:
         else:
             lo, hi = ev.zero_interval
             level = ev.zero_level
-        return f"{level_text(level)} CI [{fmt(lo)}, {fmt(hi)}]"
+        return f"{level_text(level)} CI {fmt_ci(lo, hi)}"
 
 
 # --------------------------------------------------------------------------- #
@@ -313,7 +370,37 @@ _WORD_PATTERNS = [
 
 _COMPILED = [(name, re.compile(p)) for name, p in _WORD_PATTERNS]
 
-_NUM = r"-?\d*\.?\d+(?:e-?\d+)?"
+_NUM = r"-?\d*\.?\d+(?:e[+-]?\d+)?"
+# Exact aliases only: no conversion, dimensional algebra, or inference from free text.
+# In particular, one-letter abbreviations such as "m" are too ambiguous here.
+_SIMPLE_UNIT_GROUPS = {
+    "hour": ("hour", "hours", "hr", "hrs"),
+    "minute": ("minute", "minutes", "min", "mins"),
+    "second": ("second", "seconds", "sec", "secs"),
+    "day": ("day", "days"),
+    "week": ("week", "weeks", "wk", "wks"),
+    "year": ("year", "years", "yr", "yrs"),
+    "meter": ("meter", "meters", "metre", "metres"),
+    "centimeter": ("centimeter", "centimeters", "centimetre", "centimetres", "cm"),
+    "millimeter": ("millimeter", "millimeters", "millimetre", "millimetres", "mm"),
+    "kilometer": ("kilometer", "kilometers", "kilometre", "kilometres", "km"),
+    "gram": ("gram", "grams"),
+    "kilogram": ("kilogram", "kilograms", "kg"),
+    "milligram": ("milligram", "milligrams", "mg"),
+    "pound": ("pound", "pounds", "lb", "lbs"),
+    "point": ("point", "points"),
+}
+_SIMPLE_UNITS = {alias: name for name, aliases in _SIMPLE_UNIT_GROUPS.items() for alias in aliases}
+# These tokens can denote a unit but also mean other things. Detect them only to
+# request review, never to infer which unit was meant.
+_AMBIGUOUS_UNITS = {"h", "m", "s", "g"}
+_UNIT_AFTER_NUMBER = re.compile(r"[\s-]*(" + "|".join(sorted(set(_SIMPLE_UNITS) | _AMBIGUOUS_UNITS,
+                                                            key=len, reverse=True)) + r")\b")
+_NEITHER_EQUIVALENCE = re.compile(
+    r"\bneither\s+(?:practical\s+)?equivalence"
+    r"(?:\s+within\s+(?:plus\s+or\s+minus|±|\+/-|\+-)\s*" + _NUM + r"(?:\s+[a-z][a-z-]*){0,2})?"
+    r"\s+nor\s+(?:an?\s+)?effects?\b"
+)
 _NUMBER_PATTERNS = [
     # "95% probability", "95% confident": a probability statement, not a percentage change
     ("_skip", re.compile(r"(?<![a-z_])" + _NUM + r"\s*%(?=\s*(?:probability|chance|likelihood|confident|confidence|"
@@ -419,6 +506,21 @@ def _number_role(context: str) -> Optional[str]:
     for role, pat in _ROLE_NUMBER:
         if pat.search(tail):
             return role
+    return None
+
+
+def _coefficient_role(prefix: str, suffix: str) -> Optional[str]:
+    """Recognize only an unqualified generic coefficient, not a named term."""
+    # The selected term's identity is unavailable to the linter. A clause-initial
+    # generic subject prevents another coefficient from silently matching it.
+    if re.search(r"(?:^|[,;:(])\s*(?:the\s+)?(?:estimated\s+)?coefficient\s+"
+                 r"(?:was|is|were|equals?|=|:)\s*(?:(?:about|approximately|around|roughly|~)\s*)?$", prefix):
+        # A term name may follow the value, optionally after units or a comma.
+        qualified = re.match(r"\s*(?:[,()]\s*)?(?:(?!(?:and|but|while|whereas|yet)\b)"
+                             r"[a-z][a-z-]*\s+){0,4}(?:for|of|on|in|with|associated\s+with|corresponding\s+to)\b", suffix)
+        parenthesized_name = re.match(r"\s*\(\s*[a-z]", suffix)
+        if not qualified and not parenthesized_name:
+            return "coefficient"
     return None
 
 
@@ -532,6 +634,22 @@ class _Hit:
     data: Dict = field(default_factory=dict)
 
 
+def _number_hit_role(h: _Hit, original: str, ctx: Context) -> Optional[str]:
+    """Resolve a number's local role without treating an outcome name as an effect."""
+    context = h.data.get("context", "")
+    role = _number_role(context)
+    if role == "estimate" and ctx.outcome:
+        match = _ROLE_NUMBER[0][1].search(context.rstrip())
+        outcome = _normalize(ctx.outcome)[0].strip()
+        if match and outcome:
+            role_start = h.start - len(context) + match.start()
+            if any(m.start() <= role_start < m.end() for m in re.finditer(re.escape(outcome), original)):
+                return None
+    if role is None and re.search(r"\bcoefficient\b", context):
+        return _coefficient_role(original[:h.start], original[h.end:])
+    return role
+
+
 _STOP = set("""a an the and or but so of in on at to for with by from as is are was were be been being this that
 these those it its their there here than then which who whom whose what when where while also very more most much
 such into over under between about after before during per both either each other same we our us they them he she
@@ -594,6 +712,12 @@ def _scan(sentence: str, ctx: Context):
     for m in list(re.finditer("%", text)):
         blank(m.start(), m.end())
 
+    # Neither equivalence nor an effect is not a no-effect or positive-equivalence
+    # claim. Request review instead of asserting that the clause is verified.
+    for m in _NEITHER_EQUIVALENCE.finditer(original):
+        hits.append(_Hit("neither_equivalence", m.group(0), m.start(), m.end()))
+        blank(m.start(), m.end())
+
     for name, pat in _COMPILED:
         for m in list(pat.finditer(text)):
             if name != "_skip":
@@ -622,6 +746,18 @@ def _scan(sentence: str, ctx: Context):
                 h.data["pp_alt"] = True  # judged as written; see check_sentence
             elif attached:
                 h.data["pp_units"] = True
+
+    # Bind a unit only to the number immediately before it, never to a nearby CI,
+    # p-value, df, or a different number in the clause. Percentage points have their
+    # own pre-existing rules above and are intentionally not handled here.
+    multiple_models = bool(re.search(r"\bmodels\b", original) or len(re.findall(r"\bmodel\b", original)) > 1 or
+                           re.search(r"\bmodel\s+[a-z0-9_.-]+\s+(?:and|or|vs\.?)\s+[a-z0-9_.-]+\b", original))
+    for h in hits:
+        unit = _effect_unit(h, original, ctx)
+        if unit is not None:
+            name, start, end, compound = unit
+            h.data.update(unit=name, unit_span=(start, end), unit_compound=compound, multiple_models=multiple_models)
+            blank(start, end)
     return hits, text, covered, idx, original
 
 
@@ -655,12 +791,37 @@ def _scale_pp(s: str) -> str:
     return format(Decimal(s).scaleb(-2), "f")
 
 
+def _effect_unit(h: _Hit, original: str, ctx: Context):
+    """Return an immediately adjacent, whitelisted unit for an effect/estimate hit.
+
+    This is deliberately not a general unit parser. Unknown text and composite
+    units remain unchecked; percentage-point and non-effect numeric roles keep
+    their existing, separate handling.
+    """
+    if h.category == "number":
+        role = _number_hit_role(h, original, ctx)
+        if role not in ("estimate", "coefficient"):
+            return None
+    elif h.category != "magnitude":
+        return None
+    number = re.search(_NUM, original[h.start:h.end])
+    if number is None:
+        return None
+    num_end = h.start + number.end()
+    if re.match(r"\s*" + _PP, original[num_end:]):
+        return None
+    unit = _UNIT_AFTER_NUMBER.match(original, num_end)
+    if unit is None:
+        return None
+    # A ratio or hyphenated compound is not a simple unit even if it begins with
+    # a known token (e.g. "hours per day" or "hour-long").
+    compound = bool(re.match(r"\s*(?:/|\bper\b|-[a-z])", original[unit.end():]))
+    return _SIMPLE_UNITS.get(unit.group(1)), unit.start(1), unit.end(1), compound
+
+
 def _unchecked(sentence: str, text: str, covered: List[bool], idx: List[int], units: Optional[str]) -> Tuple[str, ...]:
     """Runs of the sentence that no rule looked at and that contain a content word."""
     stop = set(_STOP)
-    if units:
-        for w in re.findall(r"[a-z][a-z'\-]*", units.lower()):
-            stop.update({w, w.rstrip("s"), w.rstrip("s") + "s"})
     runs, k = [], 0
     while k < len(text):
         if covered[k]:
@@ -705,10 +866,12 @@ def _topic(phrase: str) -> List[str]:
 def _judge_hit(h: _Hit, ctx: Context, sign: Optional[int]) -> Tuple[str, str]:
     ev = ctx.evidence
     has_sesoi = ev.sesoi is not None
-    lo, hi = ev.zero_interval
     z = ctx.ci_text()
     cat = h.category
 
+    if cat == "neither_equivalence":
+        return CHECK, ("This coordinated negation does not necessarily assert equivalence or no effect. "
+                       "Check both propositions and their bounds by hand; the clause has not been verified.")
     if cat == "no_effect":
         neg = _sign_of(h.phrase, ctx.better)
         if neg in (1, -1):
@@ -721,10 +884,10 @@ def _judge_hit(h: _Hit, ctx: Context, sign: Optional[int]) -> Tuple[str, str]:
             return CONFLICT, f"The data show an effect different from zero ({z})."
         if ev.equivalent:
             low, high = ev.sesoi
-            return CONFLICT, (f"Equivalence rules out effects outside [{fmt(low)}, {fmt(high)}], not every effect. "
+            return CONFLICT, (f"Equivalence rules out effects outside {fmt_bounds(low, high)}, not every effect. "
                              f"Say the effect is practically equivalent within these bounds.")
         return CONFLICT, (f"A non-significant result is not evidence of no effect: the data are compatible with "
-                         f"effects from {ctx.u(lo)} to {ctx.u(hi)} ({z}).")
+                         f"effects within the {z}.")
 
     named = h.data.get("named")
     if named in ("equivalence", "minimal-effect", "ambiguous") and cat in (
@@ -734,29 +897,29 @@ def _judge_hit(h: _Hit, ctx: Context, sign: Optional[int]) -> Tuple[str, str]:
     if cat in ("nonsignificance", "evidence_absent"):
         if ev.differs_from_zero and sign in (1, -1) and ev.direction == -sign:
             return CHECK, (f"Literally true, but the result is significant in the opposite direction ({z}, "
-                             f"p = {fmt(ev.p_zero)}). Say that directly.")
+                             f"p = {fmt_p(ev.p_zero)}). Say that directly.")
         if ev.differs_from_zero:
-            return CONFLICT, f"The result is statistically significant ({z}, p = {fmt(ev.p_zero)})."
+            return CONFLICT, f"The result is statistically significant ({z}, p = {fmt_p(ev.p_zero)})."
         return CHECK, (f"Literally true, but readers often take it to mean 'no effect'. Add the interval: "
-                         f"effects from {ctx.u(lo)} to {ctx.u(hi)} remain compatible with the data.")
+                         f"the data are compatible with effects in the {z}.")
 
     if cat == "evidence":
         strong = re.match(r"(?:strong|clear|robust|compelling|convincing|conclusive|solid|good)\b", h.phrase)
         weak = re.match(r"(?:weak|limited|some|modest|suggestive|moderate|tentative|preliminary)\b", h.phrase)
         if weak:
-            return CHECK, (f"statwarrant does not grade evidence strength. The zero test gives p = {fmt(ev.p_zero)} "
+            return CHECK, (f"statwarrant does not grade evidence strength. The zero test gives p = {fmt_p(ev.p_zero)} "
                              f"({z}); report that instead of a label.")
         if not ev.differs_from_zero:
-            return CONFLICT, f"A difference from zero is not established ({z}, p = {fmt(ev.p_zero)})."
+            return CONFLICT, f"A difference from zero is not established ({z}, p = {fmt_p(ev.p_zero)})."
         if strong:
-            return CHECK, (f"The zero test rejects (p = {fmt(ev.p_zero)}), but statwarrant does not grade how strong "
+            return CHECK, (f"The zero test rejects (p = {fmt_p(ev.p_zero)}), but statwarrant does not grade how strong "
                              f"the evidence is. Report the p-value and interval ({z}).")
-        return CONSISTENT, f"The zero test rejects ({z}, p = {fmt(ev.p_zero)})."
+        return CONSISTENT, f"The zero test rejects ({z}, p = {fmt_p(ev.p_zero)})."
 
     if cat == "marginal":
         if ev.differs_from_zero:
-            return CHECK, f"The result is significant ({z}, p = {fmt(ev.p_zero)}); 'marginal' understates it."
-        return CONFLICT, (f"The difference from zero is not significant (p = {fmt(ev.p_zero)}). 'Marginally significant' "
+            return CHECK, f"The result is significant ({z}, p = {fmt_p(ev.p_zero)}); 'marginal' understates it."
+        return CONFLICT, (f"The difference from zero is not significant (p = {fmt_p(ev.p_zero)}). 'Marginally significant' "
                          f"invites reading it as an effect; report the interval ({z}).")
 
     if cat == "equivalence":
@@ -764,9 +927,9 @@ def _judge_hit(h: _Hit, ctx: Context, sign: Optional[int]) -> Tuple[str, str]:
             return CONFLICT, "No smallest effect size of interest was declared, so equivalence cannot be assessed."
         low, high = ev.sesoi
         if ev.equivalent:
-            return CONSISTENT, f"Effects outside [{fmt(low)}, {fmt(high)}] are rejected ({ctx.ci_text('equivalence')})."
-        return CONFLICT, (f"Equivalence is not established: the {ctx.ci_text('equivalence')} is not inside "
-                         f"[{fmt(low)}, {fmt(high)}].")
+            return CONSISTENT, f"The equivalence test rejects effects outside {fmt_bounds(low, high)} ({ctx.ci_text('equivalence')})."
+        return CONFLICT, (f"Equivalence within {fmt_bounds(low, high)} is not established by the equivalence test "
+                          f"({ctx.ci_text('equivalence')}).")
 
     if cat == "small":
         if not has_sesoi:
@@ -775,34 +938,34 @@ def _judge_hit(h: _Hit, ctx: Context, sign: Optional[int]) -> Tuple[str, str]:
         if ev.exceeds_sesoi:
             return CONFLICT, f"The effect exceeds the smallest effect size of interest ({z})."
         if ev.equivalent:
-            return CONSISTENT, f"The {ctx.ci_text('equivalence')} lies inside [{fmt(low)}, {fmt(high)}]."
-        return CONFLICT, (f"The {z} includes effects beyond the smallest effect size of interest "
-                         f"([{fmt(low)}, {fmt(high)}]), so a small effect is not established.")
+            return CONSISTENT, f"The equivalence test establishes an effect within {fmt_bounds(low, high)} ({ctx.ci_text('equivalence')})."
+        return CONFLICT, (f"Equivalence within the smallest effect size of interest {fmt_bounds(low, high)} "
+                          f"is not established ({ctx.ci_text('equivalence')}), so a small effect is not established.")
 
-    if cat in ("importance", "big"):
+    if cat == "big":
+        if sign in (1, -1) and ev.direction in (1, -1) and sign != ev.direction:
+            return CONFLICT, f"The stated direction is opposite to the direction established by the {z}."
+        return CHECK, (f"'{h.phrase}' has no defined magnitude scale here. The {z} describes the effect; "
+                       "a smallest effect of interest does not define 'large', and statistical significance "
+                       "alone does not establish practical importance.")
+    if cat == "importance":
         if not has_sesoi:
             return CONFLICT, ("No smallest effect size of interest was declared, so practical importance or size "
                              "cannot be assessed.")
         low, high = ev.sesoi
         if not ev.exceeds_sesoi:
-            return CONFLICT, (f"The {z} includes values smaller than the smallest effect size of interest "
-                             f"([{fmt(low)}, {fmt(high)}]).")
+            return CONFLICT, (f"The minimal-effect test does not establish an effect beyond the smallest effect "
+                              f"size of interest ({fmt_bounds(low, high)}; {z}).")
         if sign in (1, -1) and sign != ev.direction:
             return CONFLICT, "The effect exceeds the smallest effect size of interest, but in the opposite direction to the one stated."
-        if cat == "importance":
-            return CONSISTENT, f"The whole {z} lies beyond the smallest effect size of interest."
-        near = lo if ev.direction > 0 else hi
-        bound = high if ev.direction > 0 else low
-        return CHECK, (f"The effect exceeds the smallest effect size of interest ({z}), which supports 'important', "
-                         f"not '{h.phrase}': the end of the interval nearest zero, {fmt(near)}, is "
-                         f"{abs(near) / abs(bound):.2f} times the threshold. Describe the size with the interval.")
+        return CONSISTENT, f"The whole {z} lies beyond the smallest effect size of interest."
 
     if cat == "significance":
         if not ev.differs_from_zero:
-            return CONFLICT, f"The difference from zero is not statistically significant ({z}, p = {fmt(ev.p_zero)})."
+            return CONFLICT, f"The difference from zero is not statistically significant ({z}, p = {fmt_p(ev.p_zero)})."
         if sign in (1, -1) and sign != ev.direction:
             return CONFLICT, "The result is significant, but in the opposite direction to the one stated."
-        return CONSISTENT, f"{z} excludes zero (p = {fmt(ev.p_zero)})."
+        return CONSISTENT, f"{z} excludes zero (p = {fmt_p(ev.p_zero)})."
 
     if cat == "nonzero":
         if ev.differs_from_zero:
@@ -866,10 +1029,10 @@ def _judge_named_test(cat: str, named: str, ctx: Context) -> Tuple[str, str]:
         decided, q, thr, iv = ev.exceeds_sesoi, ev.p_minimal_effect, ev.met_threshold, ctx.ci_text()
     says_significant = cat == "significance"
     if cat == "marginal":
-        return CHECK, f"The {named} test gives p = {q:.4g} against a per-side threshold of {fmt(thr)} ({iv})."
+        return CHECK, f"The {named} test gives p = {fmt_p(q, 4)} against a per-side threshold of {fmt(thr)} ({iv})."
     if says_significant == decided:
-        return CONSISTENT, f"The {named} test gives p = {q:.4g} against a per-side threshold of {fmt(thr)} ({iv})."
-    return CONFLICT, (f"The {named} test {'does not reject' if says_significant else 'rejects'}: p = {q:.4g} against "
+        return CONSISTENT, f"The {named} test gives p = {fmt_p(q, 4)} against a per-side threshold of {fmt(thr)} ({iv})."
+    return CONFLICT, (f"The {named} test {'does not reject' if says_significant else 'rejects'}: p = {fmt_p(q, 4)} against "
                       f"a per-side threshold of {fmt(thr)} ({iv}).")
 
 
@@ -1022,6 +1185,25 @@ def _judge_number(h: _Hit, ctx: Context, sign: Optional[int], known) -> Tuple[st
         if q is None:
             return CHECK, f"No {name} was run: no smallest effect size of interest was declared."
 
+        # A converted zero is not an exact probability. Also do not turn a
+        # nonzero decimal literal below the binary64 domain into zero (even if
+        # it rounds up to the minimum subnormal), or overflow it to infinity.
+        if q == 0:
+            return CHECK, f"The {name} p-value underflowed or is unavailable; its zero is not exact. Check this comparison."
+        try:
+            written = Decimal(s)
+            if not math.isfinite(x) or (written != 0 and abs(written) < Decimal.from_float(math.ulp(0.0))):
+                return CHECK, "The written p-value threshold is outside the representable binary64 range; check it manually."
+        except (InvalidOperation, ValueError, OverflowError):
+            return CHECK, "The written p-value threshold cannot be represented; check it manually."
+
+        # Near the subnormal boundary, one ulp can be a large share of p.
+        # Two-sided p can be normal even though its one-sided sf was subnormal.
+        # Tail approximations also have error: guard both sides of the boundary.
+        if (op in ("<", "<=", ">", ">=") and min(abs(q), abs(x)) < 2 * sys.float_info.min
+                and math.isclose(q, x, rel_tol=1e-8, abs_tol=max(math.ulp(q), math.ulp(x)))):
+            return CHECK, "This inequality is too close to an extreme-tail numerical boundary to verify."
+
         def holds(value: float) -> bool:
             # Inequalities are compared exactly (rounding is the writer's job). Equality must
             # match the written rounding and be within half the value ("p = 0" never matches).
@@ -1032,13 +1214,13 @@ def _judge_number(h: _Hit, ctx: Context, sign: Optional[int], known) -> Tuple[st
             return x > 0 and _close(x, s, value) and abs(x - value) <= 0.5 * value
 
         if holds(q):
-            return CONSISTENT, f"Matches the p-value of the {name} ({q:.4g})."
+            return CONSISTENT, f"Matches the p-value of the {name} ({fmt_p(q, 4)})."
         if named is None and elsewhere:
             for other, (oname, oq) in tests.items():
-                if other is not None and oq is not None and holds(oq):
-                    return CHECK, (f"Does not match the zero test (p = {q:.4g}) but matches the {oname} named "
-                                   f"elsewhere in the sentence (p = {oq:.4g}); name the test next to the p-value.")
-        return CONFLICT, f"The {name} gives p = {q:.4g}, which is not {'' if op in ('=', 'of', 'was', 'is', ':') else op + ' '}{s}."
+                if other is not None and oq is not None and oq != 0 and holds(oq):
+                    return CHECK, (f"Does not match the zero test (p = {fmt_p(q, 4)}) but matches the {oname} named "
+                                   f"elsewhere in the sentence (p = {fmt_p(oq, 4)}); name the test next to the p-value.")
+        return CONFLICT, f"The {name} gives p = {fmt_p(q, 4)}, which is not {'' if op in ('=', 'of', 'was', 'is', ':') else op + ' '}{s}."
 
     if h.category == "percentage":
         s = g[0]
@@ -1053,9 +1235,9 @@ def _judge_number(h: _Hit, ctx: Context, sign: Optional[int], known) -> Tuple[st
             rel_ok = any(rlo <= t * fx <= rhi for t in signs)
             if not (rel_ok or abs_ok):
                 return CONFLICT, (f"{s}% matches neither the relative change compatible with the data "
-                                 f"({rlo:+.1%} to {rhi:+.1%} of the baseline) nor an absolute change in the {z}.")
+                                 f"({_fmt_percent(rlo)} to {_fmt_percent(rhi)} of the baseline) nor an absolute change in the {z}.")
             return CHECK, (f"Say whether this is an absolute or a relative change, and report both: "
-                             f"absolute {ctx.u(ev.estimate)}, relative {rel:+.1%} of the baseline {ctx.u(b)}.")
+                             f"absolute {ctx.u(ev.estimate)}, relative {_fmt_percent(rel)} of the baseline {ctx.u(b)}.")
         return CHECK, ("Say whether this is percentage points (absolute) or a relative change, and report both; "
                          "declare a baseline to get both numbers. Without a baseline the percentage cannot be checked.")
 
@@ -1076,17 +1258,17 @@ def _judge_number(h: _Hit, ctx: Context, sign: Optional[int], known) -> Tuple[st
             ok = any((d > 0 and lo > v) or (d < 0 and hi < -v) for d in dirs)
             if ok:
                 return CONSISTENT, f"The whole {z} lies beyond {s}."
-            return CONFLICT, f"The data are compatible with effects from {ctx.u(lo)} to {ctx.u(hi)}, including effects smaller than {s}."
+            return CONFLICT, f"The data are compatible with effects in the {z}, including effects smaller than {s}."
         if qual in _UPPER_Q:
             ok = any((d > 0 and hi < v) or (d < 0 and lo > -v) for d in dirs)
             if ok:
                 return CONSISTENT, f"The whole {z} lies below {s} in size."
-            return CONFLICT, f"The data are compatible with effects from {ctx.u(lo)} to {ctx.u(hi)}, including effects larger than {s}."
+            return CONFLICT, f"The data are compatible with effects in the {z}, including effects larger than {s}."
         if any(_close(d * v, s.lstrip("-"), ev.estimate) for d in dirs):
             return CONSISTENT, f"Matches the estimate ({ctx.u(ev.estimate)}); report the interval too ({z})."
         if any(lo <= d * v <= hi for d in dirs):
             return CHECK, f"{s} lies inside the {z} but is not the estimate ({ctx.u(ev.estimate)})."
-        return CONFLICT, f"{s} is outside the {z}: the data are compatible with effects from {ctx.u(lo)} to {ctx.u(hi)}."
+        return CONFLICT, f"{s} is outside the {z}."
 
     raise KeyError(h.category)
 
@@ -1117,22 +1299,22 @@ def _judge_range(h: _Hit, ctx: Context) -> Tuple[str, str]:
                 return CONFLICT, f"This result has no {stated[-1]}% interval."
             lv, iv = named[0]
             if same(iv):
-                return CONSISTENT, f"Matches the {level_text(lv)} interval [{fmt(iv[0])}, {fmt(iv[1])}]."
+                return CONSISTENT, f"Matches the {level_text(lv)} interval {fmt_ci(*iv)}."
             for other_lv, other in intervals:
                 if other_lv != lv and same(other):
                     return CONFLICT, (f"These are the endpoints of the {level_text(other_lv)} interval; the "
-                                      f"{level_text(lv)} interval is [{fmt(iv[0])}, {fmt(iv[1])}].")
+                                      f"{level_text(lv)} interval is {fmt_ci(*iv)}.")
             if swapped(iv):
-                return CONFLICT, f"The endpoints are in the wrong order: the {level_text(lv)} interval is [{fmt(iv[0])}, {fmt(iv[1])}]."
-            return CONFLICT, f"The {level_text(lv)} interval is [{fmt(iv[0])}, {fmt(iv[1])}]."
+                return CONFLICT, f"The endpoints are in the wrong order: the {level_text(lv)} interval is {fmt_ci(*iv)}."
+            return CONFLICT, f"The {level_text(lv)} interval is {fmt_ci(*iv)}."
         for level, iv in intervals:
             if same(iv):
-                return CONSISTENT, f"Matches the {level_text(level)} interval [{fmt(iv[0])}, {fmt(iv[1])}]."
+                return CONSISTENT, f"Matches the {level_text(level)} interval {fmt_ci(*iv)}."
         for level, iv in intervals:
             if swapped(iv):
                 return CONFLICT, (f"The endpoints are in the wrong order: the {level_text(level)} interval is "
-                                  f"[{fmt(iv[0])}, {fmt(iv[1])}].")
-        have = "; ".join(f"{level_text(lv)} [{fmt(iv[0])}, {fmt(iv[1])}]" for lv, iv in intervals)
+                                  f"{fmt_ci(*iv)}.")
+        have = "; ".join(f"{level_text(lv)} {fmt_ci(*iv)}" for lv, iv in intervals)
         return CONFLICT, f"This is not an interval from this result ({have})."
 
     if role == "bounds":
@@ -1140,7 +1322,7 @@ def _judge_range(h: _Hit, ctx: Context) -> Tuple[str, str]:
             return CHECK, "No smallest effect size of interest was declared, so these bounds cannot be checked."
         if same(ev.sesoi):
             return CONSISTENT, "Matches the declared bounds."
-        return CONFLICT, f"The declared bounds are [{fmt(ev.sesoi[0])}, {fmt(ev.sesoi[1])}]."
+        return CONFLICT, f"The declared bounds are {fmt_bounds(*ev.sesoi)}."
 
     lo, hi = ev.zero_interval
     z = ctx.ci_text()
@@ -1168,9 +1350,23 @@ def _judge_role_number(h: _Hit, role: str, ctx: Context, sign: Optional[int]) ->
     x = float(s)
     lo, hi = ev.zero_interval
     z = ctx.ci_text()
-    if role == "estimate":
-        value = sign * x if (x > 0 and sign in (1, -1)) else x
-        if _close(value, s.lstrip("-"), ev.estimate) and (value >= 0) == (ev.estimate >= 0):
+    if role in ("estimate", "coefficient"):
+        # Coefficients carry their own sign, not a direction word elsewhere.
+        value = sign * x if (role == "estimate" and x > 0 and sign in (1, -1)) else x
+        if role == "coefficient":
+            # Compare to the actual written precision, not the generic 0.5% tolerance.
+            close = False
+            if math.isfinite(value):
+                try:
+                    written = Decimal(s)
+                    exponent = written.as_tuple().exponent
+                    close = (abs(exponent) <= 1000 and
+                             abs(written - Decimal(str(ev.estimate))) <= Decimal("0.5").scaleb(exponent))
+                except ArithmeticError:
+                    pass  # Unrepresentable written precision is not a match.
+        else:
+            close = _close(value, s.lstrip("-"), ev.estimate)
+        if close and (value >= 0) == (ev.estimate >= 0):
             return CONSISTENT, f"Matches the estimate ({ctx.u(ev.estimate)})."
         if lo <= value <= hi:
             return CHECK, f"{fmt(value)} lies inside the {z}, but the estimate is {ctx.u(ev.estimate)}."
@@ -1180,7 +1376,7 @@ def _judge_role_number(h: _Hit, role: str, ctx: Context, sign: Optional[int]) ->
             return CHECK, "No smallest effect size of interest was declared."
         if any(_close(x, s, q) and (x >= 0) == (q >= 0) for q in ev.sesoi):
             return CONSISTENT, "Matches the declared smallest effect size of interest."
-        return CONFLICT, f"The declared bounds are [{fmt(ev.sesoi[0])}, {fmt(ev.sesoi[1])}]."
+        return CONFLICT, f"The declared bounds are {fmt_bounds(*ev.sesoi)}."
     target = {"standard error": ev.se, "degrees of freedom": ev.df, "baseline": ctx.baseline}[role]
     if target is None:
         return CHECK, f"This result has no {role} to compare with."
@@ -1237,6 +1433,7 @@ _ACTION = {
     "reported_number": "Copy the number from the result.",
     "range": "Copy the interval from the result, lower end first.",
     "unattached_negation": "Check the negated part by hand.",
+    "neither_equivalence": "Check both negated claims and their bounds against the result.",
 }
 
 
@@ -1250,7 +1447,7 @@ def check_sentence(sentence: str, ctx: Context) -> CheckResult:
 
     def judge(h: _Hit):
         if h.category == "number":
-            role = _number_role(h.data.get("context", ""))
+            role = _number_hit_role(h, original, ctx)
             return None if role is None else _judge_role_number(h, role, ctx, sign)
         if h.category in _NUMBER_CATS:
             return _judge_number(h, ctx, sign, known)
@@ -1278,12 +1475,32 @@ def check_sentence(sentence: str, ctx: Context) -> CheckResult:
                 and status == CONSISTENT and h.data.get("named") is None and h.data.get("named_elsewhere")):
             return CHECK, (f"{reason} But this clause also names another test, so statwarrant cannot be sure "
                            f"this refers to the test of difference from zero; name the test next to it.")
+        if "unit" in h.data:
+            declared = _SIMPLE_UNITS.get((ctx.units or "").strip().lower())
+            stated = h.data["unit"]
+            if h.data["multiple_models"]:
+                return CHECK, ("More than one model is mentioned; this quantity's connection to this result "
+                               "has not been verified. Check the number and unit against the intended model.")
+            if h.data["unit_compound"] or declared is None or stated is None:
+                return CHECK, ("The written or declared units are missing, compound, or not supported by the "
+                               "simple-unit pattern. Check the quantity and its scale by hand.")
+            if stated != declared:
+                return CHECK, (f"The adjacent unit ({stated}) differs from the declared unit ({ctx.units}). "
+                               "The number has not been compared across scales; check the unit and any conversion by hand.")
+            if status == CONSISTENT:
+                reason += " The adjacent simple unit matches the declared unit."
+        elif status == CONSISTENT and (h.category == "magnitude" or
+                                       (h.category == "number" and _number_role(h.data.get("context", "")) == "estimate")):
+            if not h.data.get("pp"):
+                reason += " This is a numeric comparison only; any adjacent unit may be unchecked."
         return status, reason
 
     def part(cat: str, hs: List[_Hit], status: str, reason: str) -> Tuple[int, Part]:
         pieces = sorted({(a, b) for _, a, b in (_span(sentence, idx, h.start, h.end) for h in hs) if a >= 0})
         text = " … ".join(sentence[a:b] for a, b in pieces)
         action = _ACTION.get(cat, "Check this statement against the result.") if status != CONSISTENT else ""
+        if status == CHECK and any("unit_span" in h.data for h in hs):
+            action = "Check the intended quantity, unit and any conversion by hand."
         return min(h.start for h in hs), Part(cat.replace("_", "-"), text, status, reason, action, tuple(pieces))
 
     # The direction the sentence asserts (negated phrases do not count). Size
@@ -1310,12 +1527,17 @@ def check_sentence(sentence: str, ctx: Context) -> CheckResult:
             unknown.append((h, _match_known(float(h.phrase), h.phrase, known)))
             continue
         status, reason = verdict
-        parts.append(part("reported_number" if h.category == "number" else h.category, [h], status, reason))
+        pieces = [h]
+        if "unit_span" in h.data and status != CONFLICT:
+            a, b = h.data["unit_span"]
+            if not (h.start <= a and b <= h.end):
+                pieces.append(_Hit("unit", original[a:b], a, b))
+        parts.append(part("reported_number" if h.category == "number" else h.category, pieces, status, reason))
 
     if unknown:
         # The number's role (estimate, interval end, standard error...) is not stated, so
         # even a number that equals something in the result is not taken as consistent.
-        notes = [f"{h.phrase} equals the {name}" if name else f"{h.phrase} matches nothing in this result"
+        notes = [f"{h.phrase} may match the {name} after rounding" if name else f"{h.phrase} matches nothing in this result"
                  for h, name in unknown]
         parts.append(part("unverified_number", [h for h, _ in unknown], CHECK,
                           "statwarrant cannot tell what " + ("these numbers stand" if len(unknown) > 1 else
@@ -1355,7 +1577,9 @@ def check_sentence(sentence: str, ctx: Context) -> CheckResult:
                 covered[k] = True
 
     ordered = tuple(p for _, p in sorted(parts, key=lambda sp: sp[0]))
-    unchecked = _unchecked(sentence, residual, covered, idx, ctx.units) if ordered else ()
+    # If no pattern is recognized, the entire non-empty sentence is unchecked.
+    # An empty list in serialized results must not imply otherwise.
+    unchecked = _unchecked(sentence, residual, covered, idx, ctx.units) if ordered else ((sentence,) if sentence.strip() else ())
     return CheckResult(sentence, ordered, unchecked)
 
 
@@ -1376,7 +1600,6 @@ _CATALOGUE = [
 
 def _allowed_templates(ctx: Context) -> List[str]:
     ev = ctx.evidence
-    lo, hi = ev.zero_interval
     cls = ev.claim_class
     z = ctx.ci_text()
     if ev.sesoi is not None:
@@ -1388,32 +1611,32 @@ def _allowed_templates(ctx: Context) -> List[str]:
     if cls == "differs_negative":
         return [f"The effect is negative ({z}). Its practical importance cannot be judged without a declared smallest effect size of interest."]
     if cls == "inconclusive_no_sesoi":
-        return [f"A difference from zero is not established; the data are compatible with effects from {ctx.u(lo)} to {ctx.u(hi)} ({z})."]
+        return [f"A difference from zero is not established; the data are compatible with an effect of zero. The {z}."]
     if cls == "exceeds_sesoi_positive":
-        return [f"The effect is positive and larger than the smallest effect size of interest ({ctx.u(high)}) ({z})."]
+        return [f"The effect is positive and larger than the smallest effect size of interest ({ctx.bound_u(high)}) ({z})."]
     if cls == "exceeds_sesoi_negative":
-        return [f"The effect is negative and larger in magnitude than the smallest effect size of interest ({ctx.u(low)}) ({z})."]
+        return [f"The effect is negative and larger in magnitude than the smallest effect size of interest ({ctx.bound_u(low)}) ({z})."]
     if cls == "nonzero_negligible":
         return [f"The effect differs from zero but is smaller than the smallest effect size of interest: "
-                f"it lies within [{fmt(low)}, {fmt(high)}] ({e}). It is detectable but practically negligible."]
+                f"it lies within {fmt_bounds(low, high)} ({e}). It is detectable but practically negligible."]
     if cls == "equivalent":
-        return [f"The effect is practically equivalent to zero within [{fmt(low)}, {fmt(high)}] ({e}). "
+        return [f"The effect is practically equivalent to zero within {fmt_bounds(low, high)} ({e}). "
                 f"A small effect inside these bounds is not ruled out."]
     if cls == "positive_importance_undetermined":
         return [f"The effect is positive ({z}); whether it reaches the smallest effect size of interest "
-                f"({ctx.u(high)}) is not determined by these data."]
+                f"({ctx.bound_u(high)}) is not determined by these data."]
     if cls == "negative_importance_undetermined":
         return [f"The effect is negative ({z}); whether it reaches the smallest effect size of interest "
-                f"({ctx.u(low)}) is not determined by these data."]
+                f"({ctx.bound_u(low)}) is not determined by these data."]
     if cls == "inconclusive_one_side":
         return [f"The result is inconclusive: the data are compatible with an effect of zero and with an "
-                f"effect beyond the smallest effect size of interest ({z})."]
+                f"effect beyond the smallest effect size of interest. The {z}."]
     if cls == "inconclusive_at_bound":
-        return [f"The result is inconclusive: the data are compatible with an effect of zero, and the interval ends "
+        return [f"The result is inconclusive: the data are compatible with an effect of zero. The interval ends "
                 f"at the smallest effect size of interest, to numerical precision ({z})."]
     if cls == "inconclusive_both":
         return [f"The result is inconclusive: the data are compatible with an effect of zero and with "
-                f"effects beyond the smallest effect size of interest in either direction ({z})."]
+                f"effects beyond the smallest effect size of interest in either direction. The {z}."]
     raise KeyError(cls)
 
 
@@ -1432,11 +1655,16 @@ def build_claims(ctx: Context) -> Claims:
             claims.blocked.append(Claim(sentence, "blocked", " ".join(reasons), ",".join(rules)))
 
     ev = ctx.evidence
+    unresolved = [name for name, p in (("zero test", ev.p_zero), ("equivalence test", ev.p_equivalence),
+                                      ("minimal-effect test", ev.p_minimal_effect)) if p is not None and p == 0.0]
+    if unresolved:
+        claims.notes.append("The p-value for the " + ", ".join(unresolved) + " underflowed or is unavailable in "
+                            "binary64; the stored zero is not an exact probability. Check extreme comparisons manually.")
     if ev.level_conflict:
         low, high = ev.sesoi
         claims.notes.append(
             f"Level conflict: equivalence is established with the {level_text(ev.equivalence_level)} interval used by TOST, "
-            f"but the {ctx.ci_text()} reaches outside [{fmt(low)}, {fmt(high)}]. Report both intervals, or use "
+            f"but the {ctx.ci_text()} reaches outside {fmt_bounds(low, high)}. Report both intervals, or use "
             f"interval_policy='single' for one consistent reading."
         )
     if ev.sesoi is None:
@@ -1447,7 +1675,7 @@ def build_claims(ctx: Context) -> Claims:
     if ctx.baseline:
         rel = ev.estimate / ctx.baseline
         claims.notes.append(
-            f"Report both scales: absolute change {ctx.u(ev.estimate)}, relative change {rel:+.1%} "
+            f"Report both scales: absolute change {ctx.u(ev.estimate)}, relative change {_fmt_percent(rel)} "
             f"of the baseline {ctx.u(ctx.baseline)}."
         )
     return claims

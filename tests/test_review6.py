@@ -101,8 +101,11 @@ def test_unresolvable_small_null_is_disclosed():
         warnings.simplefilter("ignore", RuntimeWarning)
         t = stats.ttest_1samp(x, 0.5)
     res = sw.declare().analyze(t)
-    assert res.null == 0.0
-    assert any("can only be resolved" in n for n in res.claims.notes)
+    # The original null must not be silently changed to zero. It can be
+    # reconstructed approximately, or marked unknown if precision is insufficient.
+    assert res.null is None or res.null == pytest.approx(0.5, abs=0.05)
+    assert any("null" in n.lower() and ("rounding" in n.lower() or "unknown" in n.lower())
+               for n in res.claims.notes)
     assert res.raw_input["provenance_notes"]
 
 
