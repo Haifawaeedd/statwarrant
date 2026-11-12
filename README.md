@@ -22,9 +22,11 @@ importance, and it can flag common misreadings in a sentence you are about to wr
 > [KNOWN_ISSUES.md](KNOWN_ISSUES.md) for remaining limitations.
 >
 > The `v0.4.2` tag in the install instructions below does not exist during branch
-> review. To try this branch, use
-> `pip install "git+https://github.com/Haifawaeedd/statwarrant@fix/validation-observations"`.
-> Pin a commit if reproducing a review, since branch contents may change.
+> review. Install the required dependencies with `python -m pip install numpy scipy`,
+> then use `python -m pip install --force-reinstall --no-deps "git+https://github.com/Haifawaeedd/statwarrant@fix/validation-observations"`.
+> The force reinstall matters: different development snapshots share version 0.4.2,
+> so an ordinary pip command can leave the older one installed. Pin a commit if
+> reproducing a review, since branch contents may change.
 
 It does not invent new statistics. It combines established methods (tests of
 difference, equivalence and minimal effect; design analysis) into one consistent

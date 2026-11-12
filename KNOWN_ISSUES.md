@@ -116,3 +116,11 @@ The linter's accuracy has not been measured on sentences annotated by independen
 researchers. The sentences in the tests and in the first-user experiment were written and
 labelled by the maintainers and reviewers; many fixes were designed on them, so their
 results on those sentences are not evidence of accuracy on new ones.
+
+## 7. Development snapshots share the same version
+
+The `release-0.4.2` and validation branches contain different source code but both
+report version `0.4.2`. When one is already installed, an ordinary pip install from
+a different commit can keep the old code. Use `--force-reinstall --no-deps` for the
+chosen Git commit after installing its dependencies, and verify the installed commit
+or source-file hashes. Version text alone is insufficient to identify the snapshot.
