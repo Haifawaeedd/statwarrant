@@ -27,7 +27,7 @@ Version 0.1.0 also ran the minimal-effect test at alpha per side under
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Optional, Tuple
 
 from scipy import stats
@@ -173,8 +173,13 @@ class Evidence:
         eq_level = 1 - 2 * eq_tail
         elo, ehi = _interval_tail(self.estimate, self.se, eq_tail, self.df)
         dist = _dist(self.df)
-        return Thresholds(met_below, self.zero_level, max(abs(elo), abs(ehi)), eq_level,
-                          self.estimate, self.se, float(dist.isf(self.alpha / 2)), float(dist.isf(eq_tail)))
+        th = Thresholds(met_below, self.zero_level, max(abs(elo), abs(ehi)), eq_level,
+                        self.estimate, self.se, float(dist.isf(self.alpha / 2)), float(dist.isf(eq_tail)))
+        # The cut-offs above come from interval arithmetic, decision() from test statistics;
+        # they can differ in the last bits. Move each cut-off to the exact value at which
+        # decision() changes, so the printed cut-offs never contradict it.
+        return replace(th, met_below=None if met_below is None else _edge(th, met_below, "exceeds", below=True),
+                       equivalence_above=_edge(th, th.equivalence_above, "equivalent", below=False))
 
     @property
     def direction(self) -> int:
@@ -218,6 +223,26 @@ class Evidence:
                 "exceeds_sesoi": self.exceeds_sesoi,
             }
         return out
+
+
+def _edge(th: "Thresholds", start: float, label: str, below: bool, max_steps: int = 4096) -> float:
+    """The exact floating-point cut-off c with decision(c) != label and, on the open side,
+    decision(next value) == label ("exceeds" below c, "equivalent" above c)."""
+    away = -math.inf if below else math.inf
+    toward = math.inf if below else -math.inf
+    c = start
+    for _ in range(max_steps):  # c itself must not carry the label
+        if c > 0 and th.decision(c) == label:
+            c = math.nextafter(c, toward)
+        else:
+            break
+    for _ in range(max_steps):  # the next value outward must carry it
+        nxt = math.nextafter(c, away)
+        if nxt > 0 and th.decision(nxt) != label:
+            c = nxt
+        else:
+            break
+    return c
 
 
 def evaluate(

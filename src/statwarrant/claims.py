@@ -272,7 +272,8 @@ _WORD_PATTERNS = [
                     r"(?:similar|the same) (?:performance|results|outcomes|effects?|accuracy|scores)|"
                     r"perform(?:s|ed)? (?:similarly|the same|equally))\b"),
     ("small", r"\b(?:negligibl[ey]|trivial(?:ly)?)\b|"
-              r"\b" + _SMALL + r"(?:\s+\w+)?\s+" + _NOUNS + r"\b|"
+              r"\b" + _SMALL + r"(?:,?\s+(?:but|and|yet)?\s*(?!(?:the|a|an|this|that|these|those|its|their|our|his|"
+              r"her|was|were|is|are)\b)[a-z-]+){0,2}?\s+" + _NOUNS + r"\b|"
               r"\b" + _NOUNS + r"\s+(?:is|was|were|are|remained|remains|seems?|seemed|appears?|appeared)\s+"
               r"(?:very |quite |rather |relatively |fairly |extremely |really )?" + _SMALL + r"\b|"
               r"\bslight(?:ly)?\b|"
@@ -363,7 +364,9 @@ _TEST_NAMES = {
 _BOTH_TESTS = re.compile(r"\b(?:equivalence|minim(?:al|um)[- ]effects?) (?:and|or) (?:equivalence|minim(?:al|um)[- ]effects?) "
                          r"(?:tests?|testing|analys[ie]s)\b")
 _SEGMENT_BREAK = re.compile(r"[,;()\[\]]|\.(?!\d)")
-_CLAUSE_BREAK = re.compile(r";|\.(?!\d)")
+_CLAUSE_BREAK = re.compile(r";|\.(?!\d)|\b(?:but|whereas|while|although|however)\b")
+# Segments for scoping a negation: commas, semicolons, sentence ends and conjunctions.
+_SEGMENT = re.compile(r"[,;]|\.(?!\d)|\b(?:and|but|while|whereas|although|so|yet|however)\b")
 
 
 def _bounded(text: str, start: int, end: int, breaks) -> str:
@@ -603,25 +606,48 @@ def _scan(sentence: str, ctx: Context):
 
     # "0.9 percentage points" about a result stored as a proportion (0.009): read the
     # sentence's outcome-scale numbers on the stored scale.
-    if _percentage_points(original, ctx):
+    mode = _percentage_points(original, ctx)
+    if mode:
+        after_pp = [m.end() - 1 for m in re.finditer(_PP + r"\s*\(", original)]  # the "(" after "points"
         for h in hits:
-            if h.category in ("magnitude", "range") and h.data.get("groups"):
-                h.data["groups"] = [_scale_pp(g) if g is not None and re.fullmatch(_NUM, g) else g
-                                    for g in h.data["groups"]]
+            if h.category not in ("magnitude", "range", "number"):
+                continue
+            attached = bool(re.match(r"\s*(?:[a-z]+\s+)?" + _PP, original[h.end:]))
+            if not attached and h.category == "range":  # "0.9 percentage points (95% CI -0.7 to 2.5)"
+                attached = any(p <= h.start and ")" not in original[p + 1:h.start] for p in after_pp)
+            if mode == "convert" and attached:
+                _rescale(h)
                 h.data["pp"] = True
-            elif h.category == "number":
-                h.phrase = _scale_pp(h.phrase)
-                h.data["pp"] = True
-    return hits, text, covered, idx
+            elif mode == "convert":
+                h.data["pp_alt"] = True  # judged as written; see check_sentence
+            elif attached:
+                h.data["pp_units"] = True
+    return hits, text, covered, idx, original
 
 
-def _percentage_points(original: str, ctx: Context) -> bool:
-    if not re.search(r"percentage[- ]points?|\bpp\b|%[- ]points?", original):
-        return False
-    if ctx.units and re.search(r"percent|point|%", ctx.units.lower()):
-        return False  # the result is already on a percentage scale
+_PP = r"(?:percentage[- ]points?|\bpp\b|%[- ]points?)"
+_PROPORTION_UNITS = re.compile(r"\b(?:accuracy|proportion|rate|probability|share|fraction|prevalence|risk|recall|"
+                               r"precision|f1|auc|sensitivity|specificity|coverage)\b")
+
+
+def _percentage_points(original: str, ctx: Context) -> Optional[str]:
+    """'convert' when the sentence speaks of percentage points about a result stored as a
+    proportion; 'unknown_units' when it does but the declared units are not a proportion."""
+    if not re.search(_PP, original):
+        return None
+    units = (ctx.units or "").lower()
+    if re.search(r"percent|point|%", units):
+        return None  # the result is already on a percentage scale
     ev = ctx.evidence
-    return max(abs(ev.estimate), abs(ev.zero_interval[0]), abs(ev.zero_interval[1])) <= 1
+    small = max(abs(ev.estimate), abs(ev.zero_interval[0]), abs(ev.zero_interval[1])) <= 1
+    return "convert" if small and _PROPORTION_UNITS.search(units) else "unknown_units"
+
+
+def _rescale(h: "_Hit") -> None:
+    if h.data.get("groups"):
+        h.data["groups"] = [_scale_pp(g) if g is not None and re.fullmatch(_NUM, g) else g for g in h.data["groups"]]
+    if h.category == "number":
+        h.phrase = _scale_pp(h.phrase)
 
 
 def _scale_pp(s: str) -> str:
@@ -1216,8 +1242,43 @@ _ACTION = {
 
 def check_sentence(sentence: str, ctx: Context) -> CheckResult:
     """Look for possible problems in one English sentence. Never approves the sentence."""
-    hits, residual, covered, idx = _scan(sentence, ctx)
+    hits, residual, covered, idx, original = _scan(sentence, ctx)
     known = _known(ctx)
+
+    def segment(pos: int) -> int:
+        return sum(1 for _ in _SEGMENT.finditer(original, 0, pos))
+
+    def judge(h: _Hit):
+        if h.category == "number":
+            role = _number_role(h.data.get("context", ""))
+            return None if role is None else _judge_role_number(h, role, ctx, sign)
+        if h.category in _NUMBER_CATS:
+            return _judge_number(h, ctx, sign, known)
+        return _judge_hit(h, ctx, sign)
+
+    def judge_with_safeguards(h: _Hit):
+        verdict = judge(h)
+        if verdict is None:
+            return None
+        status, reason = verdict
+        if h.data.get("pp"):
+            reason += " (Read as percentage points of a proportion.)"
+        if h.data.get("pp_units"):
+            return CHECK, (f"Percentage points cannot be converted to the declared units "
+                           f"({ctx.units or 'none declared'}). State the value on the scale of the analysis, or "
+                           f"declare proportion units such as 'accuracy'.")
+        if h.data.get("pp_alt") and status == CONFLICT:
+            alt = _Hit(h.category, h.phrase, h.start, h.end, dict(h.data))
+            _rescale(alt)
+            alt_verdict = judge(alt)
+            if alt_verdict is not None and alt_verdict[0] != CONFLICT:
+                return CHECK, (f"{reason} Read as percentage points it would fit; say which scale this number "
+                               f"is on.")
+        if (h.category in ("p_value", "significance", "nonsignificance", "evidence_absent", "marginal")
+                and status == CONSISTENT and h.data.get("named") is None and h.data.get("named_elsewhere")):
+            return CHECK, (f"{reason} But this clause also names another test, so statwarrant cannot be sure "
+                           f"this refers to the test of difference from zero; name the test next to it.")
+        return status, reason
 
     def part(cat: str, hs: List[_Hit], status: str, reason: str) -> Tuple[int, Part]:
         pieces = sorted({(a, b) for _, a, b in (_span(sentence, idx, h.start, h.end) for h in hs) if a >= 0})
@@ -1244,23 +1305,12 @@ def check_sentence(sentence: str, ctx: Context) -> CheckResult:
     for h in hits:
         if h.category in _DIRECTION_WORDS:
             continue
-        if h.category == "number":
-            role = _number_role(h.data.get("context", ""))
-            if role is None:
-                unknown.append((h, _match_known(float(h.phrase), h.phrase, known)))
-            else:
-                status, reason = _judge_role_number(h, role, ctx, sign)
-                if h.data.get("pp"):
-                    reason += " (Read as percentage points of a proportion.)"
-                parts.append(part("reported_number", [h], status, reason))
+        verdict = judge_with_safeguards(h)
+        if verdict is None:  # a number whose role is not stated
+            unknown.append((h, _match_known(float(h.phrase), h.phrase, known)))
             continue
-        if h.category in _NUMBER_CATS:
-            status, reason = _judge_number(h, ctx, sign, known)
-            if h.data.get("pp"):
-                reason += " (Numbers read as percentage points of a proportion.)"
-        else:
-            status, reason = _judge_hit(h, ctx, sign)
-        parts.append(part(h.category, [h], status, reason))
+        status, reason = verdict
+        parts.append(part("reported_number" if h.category == "number" else h.category, [h], status, reason))
 
     if unknown:
         # The number's role (estimate, interval end, standard error...) is not stated, so
@@ -1272,10 +1322,17 @@ def check_sentence(sentence: str, ctx: Context) -> CheckResult:
                                                              "this number stands") + " for (" + "; ".join(notes) + ")."))
 
     folded = any(p.rule.replace("-", "_") in _FOLDED for _, p in parts)
-    # "did not significantly improve": the direction words sit under the
-    # negation and were judged with it, not as a separate claim.
-    negated = any(p.rule.replace("-", "_") in _NEGATING for _, p in parts)
-    if carriers and not negated and (not folded or sign == 0):
+    # "did not significantly improve": direction words under a negation were judged with
+    # it. Only words in the negation's own segment are excused; "..., and scores
+    # decreased" is still a direction claim.
+    negated_segments = {segment(h.start) for h in hits if h.category in _NEGATING}
+    carriers = [h for h in carriers if segment(h.start) not in negated_segments]
+    affirmative = set()
+    for h in carriers:
+        sg = _sign_of(h.phrase, ctx.better)
+        affirmative.update({sg} if sg != 0 else {1, -1})
+    sign = None if not affirmative else (affirmative.pop() if len(affirmative) == 1 else 0)
+    if carriers and (not folded or sign == 0):
         ev = ctx.evidence
         z = ctx.ci_text()
         if sign == 0:

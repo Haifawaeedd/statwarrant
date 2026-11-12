@@ -15,12 +15,11 @@ importance, and it can flag common misreadings in a sentence you are about to wr
 > and the sentence linter's accuracy has not been measured. Use it as an aid to careful
 > reporting, not as a validator, and check its output. Reports of wrong results are very welcome.
 
-> **0.4.2 review branch — not a release.** Independent review found unresolved
-> errors: the sentence linter can bind a p-value to the wrong test, hide an unchecked
-> direction, or apply percentage-point conversion to the wrong units; reported
-> threshold cut-offs can also contradict the decision. Check the entire result and
-> sentence independently. See [KNOWN_ISSUES.md](KNOWN_ISSUES.md) for reproducible
-> examples and further numerical and paired-data limitations.
+> **0.4.2 review branch — not a release.** Independent review of this branch found
+> errors in test binding, percentage-point conversion, negation scope and printed
+> threshold cut-offs. They are fixed on the branch with regression tests, and the fixes
+> await independent re-review. Check the entire result and sentence independently. See
+> [KNOWN_ISSUES.md](KNOWN_ISSUES.md) for what was fixed and the limitations that remain.
 >
 > The `v0.4.2` tag in the install instructions below does not exist during branch
 > review. To try this branch, use

@@ -133,11 +133,12 @@ class Plan:
             raise ValueError("give exactly one of: a fitted result, se=..., or ci=(lower, upper)")
 
         null = 0.0
+        provenance: list = []
         raw = {"estimate": _raw(estimate), "se": _raw(se), "df": _raw(df),
                "ci": None if ci is None else [_raw(ci[0]), _raw(ci[1])],
                "ci_level": ci_level if ci is not None else None, "baseline": _raw(baseline)}
         if result is not None:
-            est, s, d, source, null = adapters.from_result(result, term)
+            est, s, d, source, null, provenance = adapters.from_result(result, term)
             if hasattr(result, "params"):  # statsmodels: the statistic and p-value of this term
                 rep_stat, rep_p = _term_value(result, "tvalues", term), _term_value(result, "pvalues", term)
             else:
@@ -167,7 +168,12 @@ class Plan:
             d = None if df is None else float(df)
             source = "estimate and standard error"
 
-        return self._finish(est, s, d, source, baseline, null, label, raw)
+        res = self._finish(est, s, d, source, baseline, null, label, raw)
+        for note in reversed(provenance):
+            res.claims.notes.insert(0, note)
+        if provenance:
+            res.raw_input["provenance_notes"] = list(provenance)
+        return res
 
     def analyze_paired(
         self,
@@ -181,7 +187,7 @@ class Plan:
         """Item-level paired scores, e.g. model A and model B on the same test questions (A - B)."""
         est, s, d = adapters.paired(a, b, cluster)
         source = "paired item scores" + (" (cluster-robust SE)" if cluster is not None else "")
-        differing = int(np.count_nonzero(np.asarray(a, dtype=float) - np.asarray(b, dtype=float)))
+        differing = int(np.count_nonzero(adapters.paired_differences(a, b)))
         # n_clusters comes from the same grouping the inference used (df = G - 1).
         raw = {"n_items": len(a), "n_differing_items": differing,
                "n_clusters": None if cluster is None else int(round(d)) + 1, "baseline": _raw(baseline)}
@@ -200,11 +206,16 @@ class Plan:
             if not math.isfinite(baseline) or baseline == 0:
                 raise ValueError("baseline must be a finite, non-zero number (a relative change needs a non-zero reference)")
         ev = evaluate(est, s, d, self.alpha, self.interval_policy, self.sesoi)
+        if baseline is not None:
+            relative = [x / baseline for x in (ev.estimate, *ev.zero_interval)]
+            if not all(math.isfinite(x) for x in relative):
+                raise ValueError("the baseline is too small for the estimate: the relative change overflows. "
+                                 "Rescale the outcome or omit the baseline.")
         ctx = Context(ev, self.units, self.scope, self.better, baseline, self.outcome)
         claims = build_claims(ctx)
         if null != 0.0:
-            claims.notes.insert(0, f"The effect is the difference from the test's null value {fmt(null)} "
-                                   f"(the estimate {fmt(est)} means {fmt(est + null)} - {fmt(null)}).")
+            claims.notes.insert(0, f"The effect is the difference from the test's null value {null:.12g} "
+                                   f"(the estimate {est:.12g} is {est + null:.12g} minus {null:.12g}).")
         return Result(plan=self, evidence=ev, context=ctx, claims=claims, source=source, null=null, label=label,
                       raw_input=raw or {})
 

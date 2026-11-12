@@ -38,6 +38,22 @@ Fixes from the first-user experiment (three real datasets), its independent revi
 
 * `KNOWN_ISSUES.md` lists what 0.4.2 fixed and what remains.
 
+**After independent review of the release-0.4.2 branch**
+
+* A p-value or significance word in a clause that names another test is never marked
+  consistent with the zero test (`"For the equivalence test, p = 0.011."` gives `check`).
+  Contrastive conjunctions ("but", "whereas", "while") end a clause.
+* Percentage points are converted only for proportion units and only for numbers
+  attached to "percentage points"; other units give `check`; an unattached number that
+  fits only after conversion gives `check`, not `conflict`.
+* A negation excuses direction words only in its own clause. Size words separated from
+  their noun ("a small but significant decrease") are read as size claims.
+* Printed threshold cut-offs are placed exactly where `thresholds.decision()` changes.
+* A small null value that the data scale cannot resolve is disclosed in a note; a
+  reported p = 0 is accepted only with a matching statistic and a note; tiny baselines
+  that overflow the relative change are refused; paired integer scores are subtracted
+  exactly.
+
 ## 0.4.1
 
 Fixes from the final review of 0.4.0. One changed numerical results: SciPy results

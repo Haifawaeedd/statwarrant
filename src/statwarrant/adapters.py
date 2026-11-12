@@ -34,7 +34,7 @@ def _scalar(x) -> Optional[float]:
     return v if math.isfinite(v) else None
 
 
-def _verify(est: float, se: float, df: Optional[float], reported_stat, reported_p, what: str) -> None:
+def _verify(est: float, se: float, df: Optional[float], reported_stat, reported_p, what: str) -> Optional[str]:
     """Stop unless statwarrant reproduces the original test statistic and p-value.
 
     Both comparisons are relative, so they behave the same whatever the scale of the
@@ -53,6 +53,11 @@ def _verify(est: float, se: float, df: Optional[float], reported_stat, reported_
         raise AdapterMismatch(f"statwarrant reads {what} as estimate {est:.6g} and SE {se:.6g} (statistic "
                               f"{mine_stat:.6g}), but the result reports statistic {stat:.6g}. {advice}")
     mine_p = _p_two_sided(est, se, df)
+    if p == 0.0:
+        # A reported p of exactly 0 is an underflow somewhere; it cannot be compared.
+        # The statistic matched, so accept, but say that the p-value was not verified.
+        return (f"{what} reports p = 0 (an underflow), so only its test statistic could be verified; "
+                f"statwarrant computes p = {mine_p:.3g}.")
     # Ordinary p-values are compared relatively; tiny ones (both below 1e-250) on the log
     # scale, so 1e-260 and 1e-300 still disagree. Only exact underflow to zero is skipped.
     tiny = max(mine_p, p) <= 1e-250
@@ -67,6 +72,7 @@ def _verify(est: float, se: float, df: Optional[float], reported_stat, reported_
             f"statwarrant reads {what} with {'a normal reference' if df is None else f'df {df:.6g}'}, giving "
             f"p = {mine_p:.6g}, but the result reports p = {p:.6g}. {advice}"
         )
+    return None
 
 
 _EPS = float(np.finfo(float).eps)
@@ -103,7 +109,7 @@ def from_ci(lo: float, hi: float, level: float = 0.95, df: Optional[float] = Non
     return (lo + hi) / 2, se
 
 
-def from_scipy(result) -> Tuple[float, float, Optional[float], float]:
+def from_scipy(result, notes: Optional[list] = None) -> Tuple[float, float, Optional[float], float]:
     """scipy.stats t-test results (ttest_ind, ttest_rel, ttest_1samp).
 
     Returns (estimate, se, df, null). The estimate is the difference the test
@@ -155,13 +161,20 @@ def from_scipy(result) -> Tuple[float, float, Optional[float], float]:
     null = mid - est
     # A zero null leaves only rounding noise here, of the order of machine precision times
     # the largest quantity involved; anything larger is a real null value, kept as is.
-    if abs(null) <= 64 * _EPS * max(abs(mid), abs(est), se):
+    noise = 64 * _EPS * max(abs(mid), abs(est), se)
+    if abs(null) <= noise:
         null = 0.0
-    _verify(est, se, df, stat, getattr(result, "pvalue", None), f"this {type(result).__name__}")
+        if noise > 1e-6 * se and notes is not None:
+            notes.append(f"At this data scale, the test's null value can only be resolved to within ±{noise:.2g}; it "
+                         f"is recorded as 0. If you tested against a small non-zero value, pass estimate= and se= "
+                         f"directly.")
+    note = _verify(est, se, df, stat, getattr(result, "pvalue", None), f"this {type(result).__name__}")
+    if note and notes is not None:
+        notes.append(note)
     return est, se, df, null
 
 
-def from_statsmodels(result, term) -> Triple:
+def from_statsmodels(result, term, notes: Optional[list] = None) -> Triple:
     """A fitted statsmodels results object and the name (or index) of one coefficient.
 
     Degrees of freedom follow statsmodels' own inference: ``df_resid_inference``
@@ -188,19 +201,23 @@ def from_statsmodels(result, term) -> Triple:
         except (KeyError, IndexError, TypeError):
             return None
 
-    _verify(est, se, df, reported("tvalues"), reported("pvalues"), f"term {term!r}")
+    note = _verify(est, se, df, reported("tvalues"), reported("pvalues"), f"term {term!r}")
+    if note and notes is not None:
+        notes.append(note)
     return est, se, df
 
 
-def from_result(result, term=None) -> Tuple[float, float, Optional[float], str, float]:
+def from_result(result, term=None) -> Tuple[float, float, Optional[float], str, float, list]:
+    """(estimate, se, df, source label, null value, provenance notes)."""
+    notes: list = []
     if hasattr(result, "params") and hasattr(result, "bse"):
-        est, se, df = from_statsmodels(result, term)
-        return est, se, df, f"statsmodels:{type(result).__name__}[{term}]", 0.0
-    est, se, df, null = from_scipy(result)
+        est, se, df = from_statsmodels(result, term, notes)
+        return est, se, df, f"statsmodels:{type(result).__name__}[{term}]", 0.0, notes
+    est, se, df, null = from_scipy(result, notes)
     label = f"scipy:{type(result).__name__}"
     if null != 0.0:
         label += f" (difference from the test's null value {null:.6g})"
-    return est, se, df, label, null
+    return est, se, df, label, null, notes
 
 
 def _is_missing(label) -> bool:
@@ -213,6 +230,31 @@ def _is_missing(label) -> bool:
         return True
 
 
+def paired_differences(a: Sequence[float], b: Sequence[float]) -> np.ndarray:
+    """a - b per item, as floats. Integer scores are subtracted exactly before conversion,
+    so large integers (beyond 2**53) do not lose their differences."""
+    ra, rb = np.asarray(a), np.asarray(b)
+    if ra.shape != rb.shape or ra.ndim != 1:
+        raise ValueError("a and b must be 1-D sequences of the same length (one score per item)")
+
+    def integral(arr) -> bool:
+        if np.issubdtype(arr.dtype, np.integer) or np.issubdtype(arr.dtype, np.bool_):
+            return True
+        return arr.dtype == object and all(isinstance(v, (int, np.integer)) and not isinstance(v, bool)
+                                           for v in arr.tolist())
+
+    if integral(ra) and integral(rb):
+        d = np.array([float(int(x) - int(y)) for x, y in zip(ra.tolist(), rb.tolist())], dtype=float)
+    else:
+        fa, fb = ra.astype(float), rb.astype(float)
+        if not (np.all(np.isfinite(fa)) and np.all(np.isfinite(fb))):
+            raise ValueError("scores must be finite")
+        d = fa - fb
+    if not np.all(np.isfinite(d)):
+        raise ValueError("score differences must be finite")
+    return d
+
+
 def paired(a: Sequence[float], b: Sequence[float], cluster: Optional[Sequence] = None) -> Triple:
     """Mean of item-level paired differences a - b, e.g. two models scored on the same questions.
 
@@ -221,13 +263,7 @@ def paired(a: Sequence[float], b: Sequence[float], cluster: Optional[Sequence] =
     error with the G / (G - 1) small-sample factor is used (df = G - 1), following
     the clustered-error recommendation in Miller (2024), "Adding Error Bars to Evals".
     """
-    a = np.asarray(a, dtype=float)
-    b = np.asarray(b, dtype=float)
-    if a.shape != b.shape or a.ndim != 1:
-        raise ValueError("a and b must be 1-D sequences of the same length (one score per item)")
-    if not (np.all(np.isfinite(a)) and np.all(np.isfinite(b))):
-        raise ValueError("scores must be finite")
-    d = a - b
+    d = paired_differences(a, b)
     n = d.size
     if n < 2:
         raise ValueError("need at least two paired items")

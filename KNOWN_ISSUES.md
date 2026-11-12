@@ -4,45 +4,54 @@ These are known, unresolved issues. The examples are targeted checks, not estima
 of how often errors occur. Use statwarrant as an aid, not an automated validator;
 independently check calculations and the full text of research claims.
 
-## Improvements in 0.4.2 and remaining limitations
+## Fixed on the review branch, awaiting independent re-review
 
-Several specific examples reported for 0.4.1 improved, each with a regression test in
-`tests/test_review5.py`. Independent review found related cases that still fail; see
-the sections below. These examples are not a comprehensive validation:
+The cases reported in the first review of this branch are fixed, each with a regression
+test in `tests/test_review6.py`. These fixes have not yet been re-reviewed independently.
 
-* Some direct p-value and significance statements are bound to the named test,
-  whether the name comes before or after the p-value, for equalities and inequalities.
-  `"The equivalence test gave p < 0.05."` now conflicts when the equivalence-test
-  p-value is 0.77, but other wordings remain unsafe.
-* Decisions are computed from test statistics in which the bound is subtracted before
-  dividing by the standard error, so a decision and its p-value agree near a threshold.
-  The 0.4.1 example (`base = 1e9`) now gives `exceeds_sesoi = True` with p = 0.0058.
-* The previously reported non-zero SciPy null value is recorded correctly, but other
-  large-offset cases are still recorded incorrectly.
-* Tested malformed p-values (negative, above 1) are refused, and some mismatched tiny
-  p-values are compared on the log scale. Some extreme inputs are refused instead of
-  producing non-finite intervals; other overflows remain possible.
+* **Named tests across a comma.** `"For the equivalence test, p = 0.011."` (zero-test
+  p = 0.0111, equivalence-test p = 0.7719) now gives `check`: when the clause names
+  another test, a p-value or significance word is never marked consistent with the zero
+  test.
+* **Percentage points.** Conversion happens only when the declared units are a
+  proportion (`accuracy`, `proportion`, `rate`, `probability`, `recall`, `AUC` and
+  similar) and only for numbers attached to "percentage points" (or an interval in the
+  parenthesis right after them). For other units, such as metres or log-odds, those
+  numbers get `check`. Other numbers in the sentence are read as written; one that fits
+  only after conversion gets `check`, not `conflict`.
+* **Hidden directions.** A negation excuses direction words only in its own clause:
+  `"The difference was not significant, and scores decreased."` now checks "decreased".
+  "A small but significant decrease" is read as a size claim.
+* **Printed cut-offs.** Each threshold cut-off is moved to the exact floating-point
+  value at which `thresholds.decision()` changes, so the printed cut-offs never
+  contradict it (property-tested).
+* **Small nulls at extreme offsets.** When the data scale makes a small null value
+  impossible to resolve (for example data near 1e14 tested against 0.5), it is recorded
+  as 0 with a note saying so.
+* **Reported p = 0.** Accepted only after the test statistic matches, with a note that
+  the p-value itself could not be verified.
+* **Tiny baselines** that overflow the relative change are refused.
+* **Large integers.** Paired integer scores are subtracted exactly before conversion,
+  so differences beyond 2**53 are kept.
+
+Earlier fixes (0.4.2 before branch review) are listed in `CHANGELOG.md`.
 
 ## 1. The sentence linter is pattern-based
 
-* **Named tests.** Some direct test-name and p-value expressions are bound correctly,
-  but a comma can break the binding and cause the zero-test p-value to be used silently.
-  For example, with zero-test p = 0.0111 and equivalence-test p = 0.7719,
-  `For the equivalence test, p = 0.011.` is incorrectly marked consistent. Check the
-  named test and p-value yourself, even if the linter reports no warnings.
+* **Named tests.** A p-value is bound to a test named in the same phrase or in the words
+  just before its parenthesis; otherwise, if the clause names a test, the result is
+  `check`. Wording outside these patterns can still be misread. Check the named test and
+  p-value yourself, even if the linter reports no warnings.
 * **Scales.** Numbers are compared on the scale of the analysis. A correct odds ratio
-  for a log-odds result gets `check` ("cannot tell what this number stands for").
-  The percentage-point heuristic may assume an outcome is a proportion merely because
-  its values are within ±1, even if the units are metres or log-odds. It can also
-  rescale numbers elsewhere in the same sentence that use a different scale. Verify
-  every unit and conversion independently.
+  for a log-odds result gets `check`. Percentage-point conversion depends on the
+  declared units; declare them precisely and verify every unit and conversion.
 * **Other blind spots.** Unusual wording, long sentences with several claims, and
   claims about things statwarrant does not model (safety, mechanisms, other outcomes)
-  may not be checked. Some unchecked words may not appear in the "not checked" list;
-  for example a negated significance clause can hide a conflicting direction in a
-  later clause. Some spans may be marked consistent even when they overlap another
-  conflicting part, or when a combined direction-and-threshold claim is unsupported.
-  Do not treat a `consistent` span as a substitute for human review of the whole claim.
+  may not be checked. Not every unchecked word is guaranteed to appear in the "not
+  checked" list. Some spans may be marked consistent even when they overlap another
+  conflicting part, or when a combined claim is worded in a way the patterns do not
+  cover. Do not treat a `consistent` span as a substitute for human review of the whole
+  claim.
 
 ## 2. Paired comparisons with few differing items
 
@@ -55,15 +64,12 @@ not automatically an interval for the marginal mean or accuracy difference.
 
 ## 3. Extreme numerical precision
 
-The previously reported high-offset decision now agrees with its p-value, but its
-printed "exact" threshold boundaries can contradict `thresholds.decision()` at the
-boundary. One-ULP discrepancies also appear near a cutoff in ordinary-scale inputs.
-At extreme offsets the SciPy adapter can record a small nonzero null value as zero.
-A reported p-value of zero can also bypass a comparison with a representable tiny
-recomputed p-value, so verification is not conclusive in that case. Very small
-baselines can overflow relative-change calculations and prevent JSON export. Paired
-integers larger than 2**53 can lose differences when converted to float. Independently
-verify edge cases; centre or rescale inputs when appropriate.
+Decisions are computed from test statistics and the printed cut-offs follow
+`thresholds.decision()` exactly, but inputs whose values differ only in their last
+floating-point digits (SciPy then warns about precision loss) are themselves unreliable.
+Null values smaller than the data's resolution cannot be recovered from a SciPy result.
+Other overflows with extreme finite inputs may remain. Independently verify edge cases;
+centre or rescale inputs when appropriate.
 
 ## 4. Input provenance
 
@@ -84,5 +90,5 @@ including scope and other plan descriptions, before sharing confidential materia
 
 The linter's accuracy has not been measured on sentences annotated by independent
 researchers. The sentences in the tests and in the first-user experiment were written and
-labelled by the maintainers; several 0.4.2 fixes were designed on them, so their results
-on those sentences are not evidence of accuracy on new ones.
+labelled by the maintainers and reviewers; many fixes were designed on them, so their
+results on those sentences are not evidence of accuracy on new ones.
