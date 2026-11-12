@@ -17,9 +17,10 @@ importance, and it can flag common misreadings in a sentence you are about to wr
 
 > **0.4.2 review branch — not a release.** Independent review of this branch found
 > errors in test binding, percentage-point conversion, negation scope and printed
-> threshold cut-offs. They are fixed on the branch with regression tests, and the fixes
-> await independent re-review. Check the entire result and sentence independently. See
-> [KNOWN_ISSUES.md](KNOWN_ISSUES.md) for what was fixed and the limitations that remain.
+> threshold cut-offs. Changes addressing the reported examples have regression tests.
+> Follow-up AI review found additional numerical edge cases and remaining linter errors;
+> this is not independent human validation. Check the entire result and sentence
+> independently. See [KNOWN_ISSUES.md](KNOWN_ISSUES.md) for limitations and examples.
 >
 > The `v0.4.2` tag in the install instructions below does not exist during branch
 > review. To try this branch, use

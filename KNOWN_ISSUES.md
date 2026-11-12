@@ -4,10 +4,11 @@ These are known, unresolved issues. The examples are targeted checks, not estima
 of how often errors occur. Use statwarrant as an aid, not an automated validator;
 independently check calculations and the full text of research claims.
 
-## Fixed on the review branch, awaiting independent re-review
+## Changes after the first review, with limitations
 
-The cases reported in the first review of this branch are fixed, each with a regression
-test in `tests/test_review6.py`. These fixes have not yet been re-reviewed independently.
+Changes addressing the first review's examples have regression tests in
+`tests/test_review6.py`. A follow-up AI review confirmed improvements but also found
+remaining cases below. This is not independent human validation.
 
 * **Named tests across a comma.** `"For the equivalence test, p = 0.011."` (zero-test
   p = 0.0111, equivalence-test p = 0.7719) now gives `check`: when the clause names
@@ -22,17 +23,21 @@ test in `tests/test_review6.py`. These fixes have not yet been re-reviewed indep
 * **Hidden directions.** A negation excuses direction words only in its own clause:
   `"The difference was not significant, and scores decreased."` now checks "decreased".
   "A small but significant decrease" is read as a size claim.
-* **Printed cut-offs.** Each threshold cut-off is moved to the exact floating-point
-  value at which `thresholds.decision()` changes, so the printed cut-offs never
-  contradict it (property-tested).
+* **Printed cut-offs.** Cut-offs are adjusted toward the transition in
+  `thresholds.decision()` and the original example now agrees. Near floating-point
+  cancellation, the fixed-step search can still stop before the transition and report
+  a contradictory boundary. An extreme finite case can also fail during report export.
 * **Small nulls at extreme offsets.** When the data scale makes a small null value
   impossible to resolve (for example data near 1e14 tested against 0.5), it is recorded
   as 0 with a note saying so.
 * **Reported p = 0.** Accepted only after the test statistic matches, with a note that
-  the p-value itself could not be verified.
+  the p-value itself could not be verified. However, even when the recomputed p is an
+  ordinary value, such as 0.317, the source p = 0 is accepted and the note calls it an
+  underflow without proving that cause. Verify or supply the original result manually.
 * **Tiny baselines** that overflow the relative change are refused.
-* **Large integers.** Paired integer scores are subtracted exactly before conversion,
-  so differences beyond 2**53 are kept.
+* **Large integers.** Some paired integer scores beyond 2**53 are now subtracted exactly.
+  Mixed-sign Python integer lists including values beyond signed int64 can still be
+  coerced to floats before subtraction, losing differences and changing inference.
 
 Earlier fixes (0.4.2 before branch review) are listed in `CHANGELOG.md`.
 
@@ -50,8 +55,9 @@ Earlier fixes (0.4.2 before branch review) are listed in `CHANGELOG.md`.
   may not be checked. Not every unchecked word is guaranteed to appear in the "not
   checked" list. Some spans may be marked consistent even when they overlap another
   conflicting part, or when a combined claim is worded in a way the patterns do not
-  cover. Do not treat a `consistent` span as a substitute for human review of the whole
-  claim.
+  cover. The construction "neither equivalence ... nor an effect ..." can incorrectly
+  be flagged as asserting equivalence or no effect. Do not treat a `consistent` span as
+  a substitute for human review of the whole claim.
 
 ## 2. Paired comparisons with few differing items
 
@@ -64,12 +70,13 @@ not automatically an interval for the marginal mean or accuracy difference.
 
 ## 3. Extreme numerical precision
 
-Decisions are computed from test statistics and the printed cut-offs follow
-`thresholds.decision()` exactly, but inputs whose values differ only in their last
-floating-point digits (SciPy then warns about precision loss) are themselves unreliable.
-Null values smaller than the data's resolution cannot be recovered from a SciPy result.
-Other overflows with extreme finite inputs may remain. Independently verify edge cases;
-centre or rescale inputs when appropriate.
+Decisions are computed from test statistics, but printed cut-offs can still disagree
+with `thresholds.decision()` near floating-point cancellation. Inputs whose values
+differ only in their last floating-point digits (SciPy may warn about precision loss)
+are themselves unreliable. Some small nonzero SciPy nulls are recorded as zero
+without a provenance note; null values below the data's resolution cannot be recovered
+reliably. Other overflows with extreme finite inputs may remain. Independently verify
+edge cases; centre or rescale inputs when appropriate.
 
 ## 4. Input provenance
 

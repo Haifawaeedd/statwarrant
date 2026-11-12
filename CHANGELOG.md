@@ -27,8 +27,8 @@ Fixes from the first-user experiment (three real datasets), its independent revi
 * Every decision is computed from a test statistic in which the bound is subtracted
   before dividing by the standard error; `Thresholds.decision()` uses the same
   arithmetic. Decisions and p-values now agree near a threshold.
-* SciPy null values at large offsets are recorded correctly (tolerance tied to machine
-  precision).
+* SciPy null reconstruction uses a tolerance tied to machine precision. Some small
+  nonzero null values can still be recorded as zero; see `KNOWN_ISSUES.md`.
 * Malformed reported p-values are refused; tiny p-values are compared on the log scale;
   inputs too large for floating point are refused.
 * `analyze_paired` records the number of differing items and adds a caution when fewer
@@ -48,11 +48,12 @@ Fixes from the first-user experiment (three real datasets), its independent revi
   fits only after conversion gives `check`, not `conflict`.
 * A negation excuses direction words only in its own clause. Size words separated from
   their noun ("a small but significant decrease") are read as size claims.
-* Printed threshold cut-offs are placed exactly where `thresholds.decision()` changes.
-* A small null value that the data scale cannot resolve is disclosed in a note; a
+* Printed threshold cut-offs were adjusted to align with `thresholds.decision()` in the
+  reported examples; further edge cases remain (see `KNOWN_ISSUES.md`).
+* Some small null values that may be unresolvable now receive a note; a
   reported p = 0 is accepted only with a matching statistic and a note; tiny baselines
-  that overflow the relative change are refused; paired integer scores are subtracted
-  exactly.
+  that overflow the relative change are refused; several paired large-integer cases now
+  preserve their differences. Further null, p-value and mixed-integer edge cases remain.
 
 ## 0.4.1
 
