@@ -15,19 +15,17 @@ importance, and it can flag common misreadings in a sentence you are about to wr
 > and the sentence linter's accuracy has not been measured. Use it as an aid to careful
 > reporting, not as a validator, and check its output. Reports of wrong results are very welcome.
 
-> **0.4.2 experimental validation branch — not a release.** This branch adds targeted
+> **0.4.3.dev0 experimental comparison branch — not a release.** This branch adds targeted
 > fixes and regression tests based on real-data and numerical edge-case reviews.
 > The linter remains pattern-based and has not been validated on a human-annotated
-> independent test set. Direction words may be marked consistent without verifying
-> the order of the groups or time points in the sentence. Check the whole result,
-> contrast and sentence independently. See [KNOWN_ISSUES.md](KNOWN_ISSUES.md).
+> independent test set. Some comparative wording is still not recognized, and even
+> a recognized number, direction or significance span can be judged incorrectly.
+> Always check group order, outcome, contrast and the complete sentence independently.
+> See [KNOWN_ISSUES.md](KNOWN_ISSUES.md).
 >
-> The `v0.4.2` tag in the install instructions below does not exist during branch
-> review. Install the required dependencies with `python -m pip install numpy scipy`,
-> then use `python -m pip install --force-reinstall --no-deps "git+https://github.com/Haifawaeedd/statwarrant@fix/validation-observations"`.
-> The force reinstall matters: different development snapshots share version 0.4.2,
-> so an ordinary pip command can leave the older one installed. Pin a commit if
-> reproducing a review, since branch contents may change.
+> This is an unreleased development snapshot, not a tag or a PyPI release. See the
+> install instructions below and pin a commit when reproducing a review, because
+> branch contents may change.
 
 It does not invent new statistics. It combines established methods (tests of
 difference, equivalence and minimal effect; design analysis) into one consistent
@@ -61,12 +59,19 @@ print(res.check("The new method improved scores by about 4 points and is safe fo
 ```
 
 ```text
-[1 warning] The new method improved scores by about 4 points and is safe for all students.
+[3 warnings] The new method improved scores by about 4 points and is safe for all students.
+  - check    direction              "improved": The direction's relationship to the
+    declared contrast, compared groups or time points and their order could not be
+    verified. Check the wording and contrast by hand.
+    Check: Verify the compared groups or time points, their order and the declared contrast by hand.
+  - check    magnitude              "by about 4 … points": The direction's relationship to
+    the declared contrast, compared groups or time points and their order could not be
+    verified. Check the wording and contrast by hand.
+    Check: Check the intended quantity, unit and any conversion by hand.
   - conflict generalization         "for all": An average effect does not show that every
     individual or case is affected, and the evidence comes from 'first-year students,
     one university, one term' only.
     Check: Limit the claim to the declared scope and to the average effect.
-  Consistent with the result: "improved" (direction); "by about 4 … points" (magnitude).
   Not checked: "The new method", "scores", "and is safe", "students".
   Unit checking is pattern-based and partial: a limited set of simple units adjacent to a
   recognised effect or estimate are compared. Other units and conversions may be unchecked;
@@ -110,12 +115,13 @@ the output says so.
 ## Install
 
 ```bash
-pip install "git+https://github.com/Haifawaeedd/statwarrant@v0.4.2"
+python -m pip install numpy scipy
+python -m pip install --force-reinstall --no-deps "git+https://github.com/Haifawaeedd/statwarrant@fix/comparative-direction-safety"
 ```
 
-Pin the version you used, so your analysis can be reproduced. Requires Python 3.9+,
-NumPy and SciPy 1.11+. If the repository is private, Git must be authenticated with
-an account that has access.
+Pin the Git commit you used, so your analysis can be reproduced. Requires Python 3.9+,
+NumPy and SciPy 1.11+. `--force-reinstall` prevents a previously installed development
+snapshot from being reused silently; install the dependencies first.
 
 ## Real-data regression example
 
@@ -136,6 +142,14 @@ pytest -q tests/test_nist_longley_validation.py tests/test_real_data_reference_s
 These examples are not certification of all statistical methods or of the sentence
 linter. Longley's OLS model has strongly correlated predictors; interpretation of
 any estimate depends on the original data and model assumptions, not on statwarrant.
+
+## Independent human evaluation
+
+The [human-review starter kit](evaluation/human-review/README.md) contains empty CSV
+templates and Arabic instructions for collecting real claims and recording two blinded,
+independent human reviews. It contains no study data or completed labels. A 30-claim
+pilot can test the process, but does not measure general accuracy; a separate,
+held-out evaluation is still needed. Do not commit confidential data or unlicensed text.
 
 ## Usage
 

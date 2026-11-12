@@ -221,6 +221,8 @@ class Context:
     better: str = "higher"
     baseline: Optional[float] = None
     outcome: Optional[str] = None
+    contrast: Optional[str] = None
+    comparison_origin_is_zero: bool = True
 
     def u(self, x: float) -> str:
         return f"{fmt(x)} {self.units}" if self.units else fmt(x)
@@ -1399,6 +1401,83 @@ def _names_outcome(h: "_Hit", ctx: Context) -> bool:
     before = h.data.get("before", "")
     return bool(re.search(r"(?:effects?|impacts?|differences?|changes?|associations?|influence)\s+"
                           r"(?:on|in|of|for|with)\s+(?:[a-z'-]+\s+){0,2}$", before))
+
+
+# This is deliberately a small grammar, not entity extraction or natural-language
+# understanding. Anything outside it must not acquire a sign by substring match.
+_THRESHOLD_NAME = r"(?:the\s+)?(?:smallest effect size of interest|sesoi|threshold of interest)\b"
+_COMPARISON = re.compile(r"(?<!more )(?<!less )\bthan\b(?!\s+" + _THRESHOLD_NAME + r")|"
+                         r"\b(?:versus|vs\.?|compared\s+(?:to|with)|relative\s+to|minus|"
+                         r"outperform(?:s|ed|ing)?|underperform(?:s|ed|ing)?|outscore(?:s|d|ing)?|beats?)\b|"
+                         r"\bbetween\b(?!\s*[-+]?(?:\d|\.\d))|"
+                         r"\b(?:more|less)\s+than\s+(?!" + _THRESHOLD_NAME + r"|\d)[a-z]|"
+                         r"\bfrom\s+(?![-+]?(?:\d|\.\d))[^;!?]*\bto\s+(?![-+]?(?:\d|\.\d))|"
+                         r"\bfrom\s+(?:baseline|day|week|month|year|time)\b|"
+                         r"\b(?:post|pre)[- ]?(?:treatment|intervention|test|procedure)\b|"
+                         r"\bduring\s+(?:follow[- ]?up|treatment|intervention)\b|"
+                         r"\bwith\s+(?:the\s+)?(?:treatment|intervention|control)\b|"
+                         r"\b(?:after|before|following)\b|\bfor\s+(?!display\b)(?:the\s+)?[a-z]")
+_IMPLICIT_COMPARATIVE = re.compile(r"\b(?:higher|lower|greater|fewer|better|worse|superior|inferior)\b")
+_DIRECT_SIGN = re.compile(r"\s*(?:the\s+)?(?:estimated\s+)?(?:effect(?:\s+estimate)?|difference|estimate|contrast|coefficient)\s+"
+                          r"(?:is|was)\s+(?:positive|negative)\s*[.!?]?\s*")
+_DIRECT_SIGN_SIGNIFICANCE = re.compile(
+    r"\s*(?:the\s+)?(?:estimated\s+)?(?:effect(?:\s+estimate)?|difference|estimate|contrast|coefficient)\s+"
+    r"(?:is|was)\s+(?:positive|negative)\s+and\s+(?:statistically\s+)?significant\s*[.!?]?\s*"
+)
+_DIRECT_SLOPE_SIGN = re.compile(r"\s*(?:the\s+)?(?:estimated\s+)?slope\s+"
+                                r"(?:is|was)\s+(?:positive|negative)\s*[.!?]?\s*")
+_LABEL = re.compile(r"[a-z0-9]+(?:\s+[a-z0-9]+){0,3}")
+_LABEL_STOP = re.compile(r"\b(?:and|or|not|no|never|neither|nor|without|than|from|to|for|is|was|"
+                         r"were|are|minus|versus|vs|compared)\b")
+
+
+def _exact_comparison(text: str, ctx: Context):
+    """Return a contrast-oriented sign and matched spans for a few exact sentences.
+
+    Both full labels and the whole sentence must match. The declared contrast is
+    user-supplied text, not proof that the labels, outcome or data are correct.
+    """
+    if not ctx.contrast or not ctx.comparison_origin_is_zero:
+        return None
+    contrast = _normalize(ctx.contrast)[0].strip()
+    pair = re.fullmatch(r"(.+?)\s+minus\s+(.+)", contrast)
+    if pair is None:
+        return None
+    labels = [re.sub(r"\s+", " ", s.strip()) for s in pair.groups()]
+    if (labels[0] == labels[1] or any(not _LABEL.fullmatch(s) or _LABEL_STOP.search(s) or
+                                      _sign_of(s, ctx.better) is not None for s in labels)):
+        return None
+
+    def literal(s):
+        return r"\s+".join(re.escape(w) for w in s.split())
+
+    if not ctx.outcome:
+        return None
+    outcome = _normalize(ctx.outcome)[0].strip()
+    if not _LABEL.fullmatch(outcome) or _LABEL_STOP.search(outcome) or _sign_of(outcome, ctx.better) is not None:
+        return None
+    subject = r"(?:the\s+)?" + literal(outcome)
+    ending = r"\s*[.!?]?\s*"
+    for first_index, second_index in ((0, 1), (1, 0)):
+        first, second = literal(labels[first_index]), literal(labels[second_index])
+        a, b = r"(?P<first>" + first + r")", r"(?P<second>" + second + r")"
+        # Direction refers to the first group in 'higher for A than for B',
+        # but to the destination in 'increased from A to B'.
+        patterns = [
+            (subject + r"\s+(?:is|are|was|were)\s+(?P<word>higher|lower)\s+for\s+" + a + r"\s+than\s+for\s+" + b,
+             first_index),
+            (subject + r"\s+(?P<word>increased|decreased|rose|fell)\s+from\s+" + a + r"\s+to\s+" + b,
+             second_index),
+        ]
+        for pattern, oriented_index in patterns:
+            match = re.fullmatch(r"\s*" + pattern + ending, text)
+            if match:
+                token_sign = _sign_of(match.group("word"), ctx.better)
+                sign = token_sign if oriented_index == 0 else -token_sign
+                return sign, match.span("word"), (match.span("first"), match.span("second"))
+    return None
+
+
 _NUMBER_CATS = {"interval_level", "alpha_level", "p_value", "percentage", "magnitude", "range"}
 _FOLDED = {"importance", "big", "significance"}
 _NEGATING = {"nonsignificance", "evidence_absent", "marginal"}
@@ -1442,6 +1521,61 @@ def check_sentence(sentence: str, ctx: Context) -> CheckResult:
     hits, residual, covered, idx, original = _scan(sentence, ctx)
     known = _known(ctx)
 
+    # The scanner normally treats these words as qualifiers, not direction
+    # carriers. In an explicit comparison they still need human review.
+    for m in re.finditer(r"\b(?:more|less|larger|smaller)\b", original):
+        if not any(h.start <= m.start() and m.end() <= h.end for h in hits):
+            if re.match(r"\s+than\s+" + _THRESHOLD_NAME, original[m.end():]):
+                continue
+            hits.append(_Hit("comparison_unbound", m.group(), m.start(), m.end()))
+            residual = _blank(residual, m.start(), m.end())
+            for k in range(m.start(), m.end()):
+                covered[k] = True
+
+    direction_hits = [h for h in hits if (h.category in _DIRECTION_WORDS and not _names_outcome(h, ctx)) or
+                      (h.category == "small" and _sign_of(h.phrase, ctx.better) is not None)]
+    embedded = [h for h in hits if h.category in ("no_effect", "not_established", "not_ruled_out", "compatible",
+                                                   "cannot_judge", "nonsignificance", "evidence_absent", "marginal")
+                and _sign_of(h.phrase, ctx.better) is not None]
+    comparison = _exact_comparison(original, ctx)
+    if comparison and (len(direction_hits) != 1 or
+                       (direction_hits[0].start, direction_hits[0].end) != comparison[1] or embedded):
+        comparison = None
+    if comparison:
+        # Digits within the exactly matched entity labels are names (day 2),
+        # not effect estimates. Do not turn them into unverified numbers.
+        hits = [h for h in hits if not (h.category == "number" and
+                any(a <= h.start and h.end <= b for a, b in comparison[2]))]
+    comparison_cue = _COMPARISON.search(original)
+    # An ordered comparison can be embedded in a numeric or significance claim
+    # even when the scanner has not recognized a directional word (e.g. a
+    # reversed signed difference, or "significantly longer ... than ...").
+    comparison_sensitive = {"number", "magnitude", "percentage", "range", "significance",
+                            "importance", "evidence", "evidence_absent", "marginal"}
+    comparison_with_claim = bool(comparison_cue and any(h.category in comparison_sensitive for h in hits))
+    has_direction = bool(direction_hits or embedded or comparison_with_claim or
+                         any(h.category == "comparison_unbound" for h in hits))
+    implicit = any(_IMPLICIT_COMPARATIVE.search(h.phrase) for h in direction_hits + embedded)
+    # These exact templates describe the signed result itself, not an inferred
+    # group ordering. Preserve the shared build_claims/check_sentence contract.
+    summaries = _allowed_templates(ctx)
+    if ctx.scope:
+        summaries = [f"{summary} Scope: {ctx.scope}." for summary in summaries]
+    result_summary = sentence in summaries
+    direct_sign = bool(ctx.comparison_origin_is_zero and (
+        _DIRECT_SIGN.fullmatch(original) or
+        _DIRECT_SIGN_SIGNIFICANCE.fullmatch(original) or
+        (_DIRECT_SLOPE_SIGN.fullmatch(original) and re.search(r"\bslope\b", ctx.contrast or "", re.IGNORECASE))
+    ))
+    # If a comparative cue or declared contrast is present, the sign must be
+    # bound to the wording; other unrecognized language can still escape this guard.
+    unbound = (has_direction and comparison is None and not result_summary and not direct_sign and
+               (not ctx.comparison_origin_is_zero or ctx.contrast is not None or implicit or bool(comparison_cue) or
+                len(direction_hits) + len(embedded) > 1 or
+                any(h.category == "comparison_unbound" for h in hits)))
+    review_reason = ("The direction's relationship to the declared contrast, compared groups or time points "
+                     "and their order could not be verified. Check the wording and contrast by hand.")
+
     def segment(pos: int) -> int:
         return sum(1 for _ in _SEGMENT.finditer(original, 0, pos))
 
@@ -1454,6 +1588,21 @@ def check_sentence(sentence: str, ctx: Context) -> CheckResult:
         return _judge_hit(h, ctx, sign)
 
     def judge_with_safeguards(h: _Hit):
+        if h.category == "comparison_unbound":
+            return CHECK, review_reason
+        if unbound:
+            role = _number_hit_role(h, original, ctx) if h.category == "number" else None
+            if (h in embedded or h.category in ("importance", "big", "significance", "nonsignificance", "evidence",
+                                                "evidence_absent", "marginal", "small", "magnitude", "percentage",
+                                                "range") or role in ("estimate", "coefficient")):
+                details = []
+                if h.data.get("multiple_models"):
+                    details.append("More than one model is mentioned; verify which model this number describes.")
+                if "unit" in h.data:
+                    declared = _SIMPLE_UNITS.get((ctx.units or "").strip().lower())
+                    if h.data.get("unit_compound") or declared is None or h.data["unit"] != declared:
+                        details.append("Also check the written and declared units and any conversion by hand.")
+                return CHECK, " ".join([review_reason] + details)
         verdict = judge(h)
         if verdict is None:
             return None
@@ -1499,9 +1648,12 @@ def check_sentence(sentence: str, ctx: Context) -> CheckResult:
         pieces = sorted({(a, b) for _, a, b in (_span(sentence, idx, h.start, h.end) for h in hs) if a >= 0})
         text = " … ".join(sentence[a:b] for a, b in pieces)
         action = _ACTION.get(cat, "Check this statement against the result.") if status != CONSISTENT else ""
+        if status == CHECK and reason == review_reason:
+            action = "Verify the compared groups or time points, their order and the declared contrast by hand."
         if status == CHECK and any("unit_span" in h.data for h in hs):
             action = "Check the intended quantity, unit and any conversion by hand."
-        return min(h.start for h in hs), Part(cat.replace("_", "-"), text, status, reason, action, tuple(pieces))
+        rule = "direction" if cat == "comparison_unbound" else cat.replace("_", "-")
+        return min(h.start for h in hs), Part(rule, text, status, reason, action, tuple(pieces))
 
     # The direction the sentence asserts (negated phrases do not count). Size
     # phrases such as "a small increase" carry a direction too.
@@ -1516,6 +1668,10 @@ def check_sentence(sentence: str, ctx: Context) -> CheckResult:
                 carriers.append(h)
                 signs.update({sg} if sg != 0 else {1, -1})
     sign = None if not signs else (signs.pop() if len(signs) == 1 else 0)
+    if unbound:
+        sign = None
+    elif comparison:
+        sign = comparison[0]
 
     parts: List[Tuple[int, Part]] = []
     unknown = []
@@ -1554,10 +1710,14 @@ def check_sentence(sentence: str, ctx: Context) -> CheckResult:
         sg = _sign_of(h.phrase, ctx.better)
         affirmative.update({sg} if sg != 0 else {1, -1})
     sign = None if not affirmative else (affirmative.pop() if len(affirmative) == 1 else 0)
-    if carriers and (not folded or sign == 0):
+    if comparison and carriers:
+        sign = comparison[0]
+    if carriers and (unbound or not folded or sign == 0):
         ev = ctx.evidence
         z = ctx.ci_text()
-        if sign == 0:
+        if unbound:
+            status, reason = CHECK, review_reason
+        elif sign == 0:
             status, reason = CONFLICT, "The sentence states both directions at once."
         elif ev.direction == 0:
             status, reason = CONFLICT, f"The direction of the effect is not established: {z} includes zero."
@@ -1565,6 +1725,8 @@ def check_sentence(sentence: str, ctx: Context) -> CheckResult:
             status, reason = CONFLICT, f"The data point the other way ({z})."
         else:
             status, reason = CONSISTENT, f"The direction is established ({z})."
+        if comparison:
+            reason += " Exact wording was matched to the declared contrast and outcome; their accuracy is not verified."
         parts.append(part("direction", sorted(carriers, key=lambda h: h.start), status, reason))
 
     if parts:

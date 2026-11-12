@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.4.3.dev0 (unreleased comparison-safety branch)
+
+* Bind a restricted set of exact English group and time-order sentences to the
+  user-declared outcome and `A minus B` contrast; selected ambiguous comparisons,
+  signed numbers and direction-bearing negations ask for human review instead.
+  Binding is withheld for SciPy inputs and nonzero or unresolved nulls. Metadata
+  are not verified against the data, and unrecognized wording can still lead to a
+  misleading judgment. See `KNOWN_ISSUES.md`.
+* Added independent regression cases for reversed groups and time points, compound
+  claims, signed values, and reconstructed nulls. These are targeted tests, not an
+  estimate of real-world sentence-checker accuracy.
+* Added empty human-review templates and Arabic instructions. No real case data or
+  human ratings are included; a pilot and separate held-out evaluation remain needed.
+* Distinguished the development version from the previous 0.4.2 snapshots. No public
+  release or tag is implied.
+
 ## Unreleased validation-observations branch
 
 * Added NIST Longley coefficient/SE regression checks, inference tests from five

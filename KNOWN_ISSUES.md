@@ -62,12 +62,19 @@ Earlier fixes (0.4.2 before branch review) are listed in `CHANGELOG.md`.
   cover. A specific construction "neither equivalence ... nor an effect ..." now asks
   for manual review, but other negations can still be misread. Do not treat a
   `consistent` span as a substitute for human review of the whole claim.
-* **Direction and comparison order.** The linter does not reliably bind group names
-  or time order in a sentence to the declared contrast. In the Iris example where
-  versicolor minus virginica is negative, it can mark `lower` consistent in a sentence
-  saying virginica is lower than versicolor, or flag `higher` in the corresponding
-  supported reversed-order sentence. Even `no_warnings` does not validate which group
-  or time point is higher. Check the contrast and the full sentence manually.
+* **Direction and comparison order.** This development branch binds a very small set
+  of exact English comparison and time-order sentences to an explicit `A minus B`
+  contrast and matching outcome supplied by the user. Other recognized comparisons
+  often receive `check`. The metadata themselves are not verified against the data.
+  A SciPy result's null is reconstructed approximately, so exact named-group binding
+  is withheld for that input; it is also withheld for an unknown or nonzero null.
+  This is a partial safety guard, not general language understanding. A comparison cue
+  or outcome may be missed entirely; a number, significance or direction span can still
+  appear consistent or conflicting when the full claim has not been validated. For
+  example, with no contrast declared, `Scores decreased over follow-up` can still get
+  `no_warnings` while `over follow-up` is unchecked. Even `no_warnings` does not
+  validate which group or time point is higher. Check the contrast, scales, outcome
+  and complete sentence manually.
 
 ## 2. Paired comparisons with few differing items
 

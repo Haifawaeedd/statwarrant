@@ -226,7 +226,12 @@ class Plan:
             if not all(math.isfinite(x) for x in relative):
                 raise ValueError("the baseline is too small for the estimate: the relative change overflows. "
                                  "Rescale the outcome or omit the baseline.")
-        ctx = Context(ev, self.units, self.scope, self.better, baseline, self.outcome)
+        # A SciPy adapter reconstructs its test null only approximately. For a
+        # nonzero or unknown null, evidence is relative to that null rather than
+        # necessarily the sign of the original named group contrast.
+        comparison_origin_is_zero = null == 0.0 and not source.startswith("scipy:")
+        ctx = Context(ev, self.units, self.scope, self.better, baseline, self.outcome,
+                      self.contrast, comparison_origin_is_zero)
         claims = build_claims(ctx)
         if null is not None and null != 0.0:
             claims.notes.insert(0, f"The effect is the difference from the test's null value {null:.12g} "
