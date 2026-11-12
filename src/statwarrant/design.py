@@ -25,6 +25,16 @@ from ._core import level_text
 from .claims import fmt
 
 
+def _pdf(x: float) -> float:
+    # The normal density underflows to 0 beyond |x| of about 38.5; skip it there (and
+    # avoid an overflow warning when squaring a huge x).
+    return 0.0 if abs(x) > 40 else float(stats.norm.pdf(x))
+
+
+def _ratio(x: float) -> str:
+    return f"{x:.2f}" if x < 1e6 else f"{x:.3g}"
+
+
 def _pct(x: float) -> str:
     return "less than 0.1%" if x < 0.001 else f"{x:.1%}"
 
@@ -47,7 +57,7 @@ class DesignPoint:
             f"Under an assumed true effect of {fmt(self.assumed_effect)} and this design (SE = {fmt(se)}), "
             f"the chance of a significant result is {self.power:.0%}. Among significant results, "
             f"{_pct(self.type_s)} would have the wrong sign, and their magnitude would on average be "
-            f"{self.exaggeration:.2f} times the true effect."
+            f"{_ratio(self.exaggeration)} times the true effect."
         )
 
     def to_dict(self) -> dict:
@@ -69,21 +79,31 @@ def design_point(assumed_effect: float, se: float, alpha: float = 0.05) -> Desig
     if not math.isfinite(A):
         raise ValueError("assumed effects must be finite numbers")
     z = stats.norm.ppf(1 - alpha / 2)
-    c = z * se
-    a = (c - A) / se  # standardised upper cut
-    b = (-c - A) / se  # standardised lower cut
-    p_hi = stats.norm.sf(a)
-    p_lo = stats.norm.cdf(b)
-    power = float(p_hi + p_lo)
+    # Work in units of the standard error (r = A / se), so that neither a huge SE nor a
+    # huge effect overflows the intermediate quantities.
+    r = A / se
+    if not math.isfinite(r):  # |A| beyond any multiple of se: the limits hold exactly
+        return DesignPoint(A, 1.0, 0.0, 1.0)
+    a = z - r  # standardised upper cut
+    b = -z - r  # standardised lower cut
+    p_hi = float(stats.norm.sf(a))
+    p_lo = float(stats.norm.cdf(b))
+    power = p_hi + p_lo
     if A == 0:
         return DesignPoint(0.0, power, None, None)
 
-    type_s = float((p_lo if A > 0 else p_hi) / power)
-    # E[|X| ; |X| > c] for X ~ N(A, se^2)
-    upper = A * p_hi + se * stats.norm.pdf(a)
-    lower = A * p_lo - se * stats.norm.pdf(b)
-    mean_abs_sig = (upper - lower) / power
-    return DesignPoint(A, power, type_s, float(mean_abs_sig / abs(A)))
+    type_s = (p_lo if A > 0 else p_hi) / power
+    # E[|X| ; |X| > c] / se for X ~ N(A, se^2)
+    upper = r * p_hi + _pdf(a)
+    lower = r * p_lo - _pdf(b)
+    denominator = power * abs(r)
+    exaggeration = (upper - lower) / denominator if denominator > 0 else math.inf
+    if not math.isfinite(exaggeration):
+        raise ValueError(
+            f"the assumed effect {A:g} is too small relative to the standard error ({se:g}) for its "
+            f"exaggeration ratio to be represented; give assumed effects on the scale of plausible true effects"
+        )
+    return DesignPoint(A, power, type_s, exaggeration)
 
 
 @dataclass
@@ -111,7 +131,7 @@ class DesignTable:
         rows = ["| Assumed effect | Power | Type S | Exaggeration ratio |", "| --- | --- | --- | --- |"]
         for p in self.points:
             ts = "undefined" if p.type_s is None else f"{p.type_s:.3f}"
-            ex = "undefined" if p.exaggeration is None else f"{p.exaggeration:.2f}"
+            ex = "undefined" if p.exaggeration is None else _ratio(p.exaggeration)
             rows.append(f"| {fmt(p.assumed_effect)} | {p.power:.3f} | {ts} | {ex} |")
         out = [
             "### Design sensitivity",
