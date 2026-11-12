@@ -18,8 +18,9 @@ importance, and it can flag common misreadings in a sentence you are about to wr
 > **0.4.2 experimental validation branch — not a release.** This branch adds targeted
 > fixes and regression tests based on real-data and numerical edge-case reviews.
 > The linter remains pattern-based and has not been validated on a human-annotated
-> independent test set. Check the whole result and sentence independently. See
-> [KNOWN_ISSUES.md](KNOWN_ISSUES.md) for remaining limitations.
+> independent test set. Direction words may be marked consistent without verifying
+> the order of the groups or time points in the sentence. Check the whole result,
+> contrast and sentence independently. See [KNOWN_ISSUES.md](KNOWN_ISSUES.md).
 >
 > The `v0.4.2` tag in the install instructions below does not exist during branch
 > review. Install the required dependencies with `python -m pip install numpy scipy`,

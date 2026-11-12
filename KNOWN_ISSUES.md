@@ -62,6 +62,12 @@ Earlier fixes (0.4.2 before branch review) are listed in `CHANGELOG.md`.
   cover. A specific construction "neither equivalence ... nor an effect ..." now asks
   for manual review, but other negations can still be misread. Do not treat a
   `consistent` span as a substitute for human review of the whole claim.
+* **Direction and comparison order.** The linter does not reliably bind group names
+  or time order in a sentence to the declared contrast. In the Iris example where
+  versicolor minus virginica is negative, it can mark `lower` consistent in a sentence
+  saying virginica is lower than versicolor, or flag `higher` in the corresponding
+  supported reversed-order sentence. Even `no_warnings` does not validate which group
+  or time point is higher. Check the contrast and the full sentence manually.
 
 ## 2. Paired comparisons with few differing items
 
