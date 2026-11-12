@@ -865,6 +865,16 @@ def _topic(phrase: str) -> List[str]:
     return t
 
 
+_UNBOUND_PREFIX = "Not checked against the result:"
+_UNBOUND_WHAT = {
+    "percentage": "this percentage", "magnitude": "this size", "range": "this interval",
+    "significance": "this significance statement", "nonsignificance": "this significance statement",
+    "marginal": "this significance statement", "evidence": "this evidence statement",
+    "evidence_absent": "this evidence statement", "importance": "this importance claim",
+    "big": "this size word", "small": "this size word",
+}
+
+
 def _judge_hit(h: _Hit, ctx: Context, sign: Optional[int]) -> Tuple[str, str]:
     ev = ctx.evidence
     has_sesoi = ev.sesoi is not None
@@ -1576,6 +1586,18 @@ def check_sentence(sentence: str, ctx: Context) -> CheckResult:
     review_reason = ("The direction's relationship to the declared contrast, compared groups or time points "
                      "and their order could not be verified. Check the wording and contrast by hand.")
 
+    def unbound_reason(h: _Hit) -> str:
+        # A number or size claim inside an unbound comparison: say what was not checked and
+        # why, instead of repeating the direction message.
+        what = _UNBOUND_WHAT.get(h.category, "this part")
+        if h.category == "number" and h not in embedded:
+            what = "this number"
+        reason = (f"{_UNBOUND_PREFIX} {what} depends on which way the comparison runs, and the wording could not "
+                  f"be tied to the declared contrast ({ctx.contrast or 'none declared'}). Check it by hand.")
+        if h.category == "percentage":
+            reason += " Also say whether the percentage is absolute (percentage points) or relative."
+        return reason
+
     def segment(pos: int) -> int:
         return sum(1 for _ in _SEGMENT.finditer(original, 0, pos))
 
@@ -1602,7 +1624,7 @@ def check_sentence(sentence: str, ctx: Context) -> CheckResult:
                     declared = _SIMPLE_UNITS.get((ctx.units or "").strip().lower())
                     if h.data.get("unit_compound") or declared is None or h.data["unit"] != declared:
                         details.append("Also check the written and declared units and any conversion by hand.")
-                return CHECK, " ".join([review_reason] + details)
+                return CHECK, " ".join([review_reason if h in embedded else unbound_reason(h)] + details)
         verdict = judge(h)
         if verdict is None:
             return None
@@ -1648,7 +1670,7 @@ def check_sentence(sentence: str, ctx: Context) -> CheckResult:
         pieces = sorted({(a, b) for _, a, b in (_span(sentence, idx, h.start, h.end) for h in hs) if a >= 0})
         text = " … ".join(sentence[a:b] for a, b in pieces)
         action = _ACTION.get(cat, "Check this statement against the result.") if status != CONSISTENT else ""
-        if status == CHECK and reason == review_reason:
+        if status == CHECK and (reason == review_reason or reason.startswith(_UNBOUND_PREFIX)):
             action = "Verify the compared groups or time points, their order and the declared contrast by hand."
         if status == CHECK and any("unit_span" in h.data for h in hs):
             action = "Check the intended quantity, unit and any conversion by hand."
