@@ -288,6 +288,20 @@ _DIRECTION = {
                         r"hurts?|impair(?:s|ed)?|deteriorat(?:e|es|ed|ion))\b"),
 }
 
+_ESTABLISHED = (r"(?:established|shown|demonstrated|found|supported|confirmed|detected|determined|observed|"
+                r"reached|achieved)")
+# "Neither X nor Y was established", "the data support neither X nor Y", "neither a significant
+# difference nor equivalence": a statement that two things are NOT established, judged item by
+# item (not a claim of no effect).
+_NEITHER_ESTABLISHED = (
+    r"\bneither\b[^.;]*?\bnor\b[^.;]*?\b(?:was|were|is|are|has been|have been|had been|could be|can be)\s+"
+    r"(?:yet\s+)?(?:statistically\s+)?" + _ESTABLISHED + r"\b|"
+    r"\b(?:supports?|supported|shows?|showed|establish(?:es|ed)?|demonstrat(?:es|ed)|indicat(?:es|ed)|"
+    r"suggest(?:s|ed)|reveal(?:s|ed)|finds?|found|provides? (?:evidence|support) for)\s+neither\b[^.;]*?\bnor\b"
+    r"[^.;,]*|"
+    r"\bneither\s+(?:(?:a|an|the|any)\s+)?(?:statistically\s+)?significan\w*\b[^.;]*?\bnor\b[^.;,]*")
+_NEITHER_ESTABLISHED_RE = re.compile(_NEITHER_ESTABLISHED)
+
 _WORD_PATTERNS = [
     ("_skip", r"\bfalse (?:positives?|negatives?)\b|\bscope:"),
     # naming a procedure is not a claim about its outcome
@@ -402,6 +416,7 @@ _NEITHER_EQUIVALENCE = re.compile(
     r"\bneither\s+(?:practical\s+)?equivalence"
     r"(?:\s+within\s+(?:plus\s+or\s+minus|±|\+/-|\+-)\s*" + _NUM + r"(?:\s+[a-z][a-z-]*){0,2})?"
     r"\s+nor\s+(?:an?\s+)?effects?\b"
+    r"(?:\s+(?:larger|greater|bigger|exceeding|beyond|above|more)\b[^.;,]*)?"
 )
 _NUMBER_PATTERNS = [
     # "95% probability", "95% confident": a probability statement, not a percentage change
@@ -719,6 +734,11 @@ def _scan(sentence: str, ctx: Context):
     for m in _NEITHER_EQUIVALENCE.finditer(original):
         hits.append(_Hit("neither_equivalence", m.group(0), m.start(), m.end()))
         blank(m.start(), m.end())
+    # Other "neither X nor Y was established" statements: judged item by item (_judge_neither).
+    for m in list(_NEITHER_ESTABLISHED_RE.finditer(text)):
+        hits.append(_Hit("neither_established", m.group(0).strip(), m.start(), m.end(),
+                         {"orig": _span(sentence, idx, m.start(), m.end())[0]}))
+        blank(m.start(), m.end())
 
     for name, pat in _COMPILED:
         for m in list(pat.finditer(text)):
@@ -1025,7 +1045,78 @@ def _judge_hit(h: _Hit, ctx: Context, sign: Optional[int]) -> Tuple[str, str]:
     if cat in ("not_established", "not_ruled_out", "compatible", "cannot_judge"):
         return _judge_uncertainty(cat, h.phrase, ctx, h.data.get("orig"))
 
+    if cat == "neither_established":
+        return _judge_neither(h, ctx)
+
     raise KeyError(cat)
+
+
+def _neither_kind(item: str, ctx: Context) -> Optional[str]:
+    if re.search(r"\b(?:larger|greater|bigger|exceed\w*|beyond|above|more than)\b", item) and re.search(r"\d", item):
+        return "threshold"  # "an effect larger than 5 units": a threshold of its own
+    if re.search(r"smallest effect size|sesoi|threshold of interest|practical(?:ly)? (?:important|relevant|"
+                 r"significant)|\bmeaningful|\bimportan", item):
+        return "importance"
+    if re.search(r"equivalen|practically (?:the same|identical)|negligib", item):
+        return "equivalence"
+    if _sign_of(item, ctx.better) is not None:
+        return "direction"
+    if re.search(r"significan|\bzero\b|differen|effect|associat|relationship|change|impact", item):
+        return "zero"
+    return None
+
+
+def _judge_neither(h: _Hit, ctx: Context) -> Tuple[str, str]:
+    """'Neither X nor Y was established': each of X and Y must indeed not be established."""
+    ev = ctx.evidence
+    z, e = ctx.ci_text(), ctx.ci_text("equivalence")
+    text = (h.data.get("orig") or h.phrase).lower()
+    m = re.search(r"\bneither\b(.*?)\bnor\b(.*)$", text, re.S)
+    if not m:
+        return CHECK, "statwarrant could not separate the two parts of this 'neither ... nor'."
+    second = re.split(r"\b(?:was|were|is|are|has been|have been|had been|could be|can be)\s+", m.group(2))[0]
+    established, checks, unknown, directions = [], [], [], []
+    for item in (m.group(1), second):
+        kind = _neither_kind(item, ctx)
+        if kind is None:
+            unknown.append(item.strip(" ,"))
+            continue
+        if kind == "threshold":
+            checks.append(f"'{item.strip(' ,')}' names its own threshold, which was not compared with the declared "
+                          f"one")
+            continue
+        if kind in ("equivalence", "importance") and ev.sesoi is None:
+            checks.append(f"no smallest effect size of interest was declared, so '{item.strip(' ,')}' was not "
+                          f"tested")
+            continue
+        if kind == "equivalence":
+            if ev.equivalent and ev.level_conflict:
+                checks.append(f"equivalence is established at the {level_text(ev.equivalence_level)} level ({e}) "
+                              f"but not with the {z}; say which level you mean")
+            elif ev.equivalent:
+                established.append(f"equivalence is established ({e})")
+        elif kind == "importance":
+            if ev.exceeds_sesoi:
+                established.append(f"the effect exceeds the smallest effect size of interest ({z})")
+        elif kind == "direction":
+            directions.append(_sign_of(item, ctx.better))
+        elif ev.differs_from_zero:
+            established.append(f"a difference from zero is established ({z})")
+    if directions and ev.direction != 0:
+        # Which written direction matches the result depends on the comparison's order; only
+        # "neither an increase nor a decrease" can be judged without knowing it.
+        if {1, -1} <= set(directions):
+            established.append(f"a direction is established ({z})")
+        else:
+            checks.append("a direction is established, and whether it is the one named here depends on the order "
+                          "of the comparison, which statwarrant does not verify")
+    if established:
+        return CONFLICT, "Understates the result: " + "; ".join(established) + "."
+    if checks:
+        return CHECK, "Partly checked: " + "; ".join(checks) + "."
+    if unknown:
+        return CHECK, f"statwarrant cannot tell what '{unknown[0]}' refers to, so the statement is not fully checked."
+    return CONSISTENT, f"Correct: neither is established ({z}" + (f"; {e}" if e != z else "") + ")."
 
 
 def _judge_named_test(cat: str, named: str, ctx: Context) -> Tuple[str, str]:
@@ -1523,6 +1614,7 @@ _ACTION = {
     "range": "Copy the interval from the result, lower end first.",
     "unattached_negation": "Check the negated part by hand.",
     "neither_equivalence": "Check both negated claims and their bounds against the result.",
+    "neither_established": "Check each part against the result.",
 }
 
 
