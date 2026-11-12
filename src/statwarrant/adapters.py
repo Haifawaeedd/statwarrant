@@ -46,14 +46,23 @@ def _verify(est: float, se: float, df: Optional[float], reported_stat, reported_
     if stat is None or p is None:
         raise AdapterMismatch(f"{what} does not report a finite test statistic and p-value, so statwarrant cannot "
                               f"check that it reads the same test. {advice}")
+    if not 0.0 <= p <= 1.0:
+        raise AdapterMismatch(f"{what} reports p = {p!r}, which is not a probability. {advice}")
     mine_stat = est / se
     if not math.isclose(mine_stat, stat, rel_tol=1e-6, abs_tol=1e-9):
         raise AdapterMismatch(f"statwarrant reads {what} as estimate {est:.6g} and SE {se:.6g} (statistic "
                               f"{mine_stat:.6g}), but the result reports statistic {stat:.6g}. {advice}")
     mine_p = _p_two_sided(est, se, df)
-    # Skip the p-value comparison only when both values underflow; one tiny and one
-    # ordinary p-value is a real disagreement.
-    if max(mine_p, p) > 1e-250 and not math.isclose(mine_p, p, rel_tol=1e-6, abs_tol=0.0):
+    # Ordinary p-values are compared relatively; tiny ones (both below 1e-250) on the log
+    # scale, so 1e-260 and 1e-300 still disagree. Only exact underflow to zero is skipped.
+    tiny = max(mine_p, p) <= 1e-250
+    if tiny and min(mine_p, p) > 0:
+        disagree = not math.isclose(math.log(mine_p), math.log(p), rel_tol=1e-6)
+    elif tiny:
+        disagree = False
+    else:
+        disagree = not math.isclose(mine_p, p, rel_tol=1e-6, abs_tol=0.0)
+    if disagree:
         raise AdapterMismatch(
             f"statwarrant reads {what} with {'a normal reference' if df is None else f'df {df:.6g}'}, giving "
             f"p = {mine_p:.6g}, but the result reports p = {p:.6g}. {advice}"
@@ -144,7 +153,9 @@ def from_scipy(result) -> Tuple[float, float, Optional[float], float]:
     # whatever the scale of the data, and the null is what remains.
     est = stat * se
     null = mid - est
-    if abs(null) <= 1e-9 * max(abs(mid), se):  # relative only: floating-point noise around a zero null
+    # A zero null leaves only rounding noise here, of the order of machine precision times
+    # the largest quantity involved; anything larger is a real null value, kept as is.
+    if abs(null) <= 64 * _EPS * max(abs(mid), abs(est), se):
         null = 0.0
     _verify(est, se, df, stat, getattr(result, "pvalue", None), f"this {type(result).__name__}")
     return est, se, df, null

@@ -27,7 +27,7 @@ Version 0.1.0 also ran the minimal-effect test at alpha per side under
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional, Tuple
 
 from scipy import stats
@@ -99,14 +99,23 @@ class Thresholds:
     met_level: float
     equivalence_above: float
     equivalence_level: float
+    # The same arithmetic as evaluate(), so decision(d) always agrees with it
+    estimate: float = field(default=0.0, repr=False)
+    se: float = field(default=1.0, repr=False)
+    met_critical: float = field(default=math.inf, repr=False)
+    equivalence_critical: float = field(default=math.inf, repr=False)
 
     def decision(self, d: float) -> str:
-        """"exceeds", "equivalent" or "undetermined" for the symmetric threshold (-d, d)."""
+        """"exceeds", "equivalent" or "undetermined" for the symmetric threshold (-d, d).
+
+        Computed like evaluate(): the bound is subtracted from the estimate before
+        dividing by the standard error, which keeps precision near a cut-off.
+        """
         if not (math.isfinite(d) and d > 0):
             raise ValueError("a threshold must be a finite positive number")
-        if self.met_below is not None and d < self.met_below:
+        if (abs(self.estimate) - d) / self.se > self.met_critical:
             return "exceeds"
-        if d > self.equivalence_above:
+        if (d - abs(self.estimate)) / self.se > self.equivalence_critical:
             return "equivalent"
         return "undetermined"
 
@@ -159,21 +168,20 @@ class Evidence:
     def thresholds(self) -> Thresholds:
         """Decisions for every symmetric threshold at once (see :class:`Thresholds`)."""
         lo, hi = self.zero_interval
-        met_below = min(abs(lo), abs(hi)) if (lo > 0 or hi < 0) else None
+        met_below = min(abs(lo), abs(hi)) if self.differs_from_zero else None
         eq_tail = self.alpha / 2 if self.policy == "single" else self.alpha
         eq_level = 1 - 2 * eq_tail
         elo, ehi = _interval_tail(self.estimate, self.se, eq_tail, self.df)
-        return Thresholds(met_below, self.zero_level, max(abs(elo), abs(ehi)), eq_level)
+        dist = _dist(self.df)
+        return Thresholds(met_below, self.zero_level, max(abs(elo), abs(ehi)), eq_level,
+                          self.estimate, self.se, float(dist.isf(self.alpha / 2)), float(dist.isf(eq_tail)))
 
     @property
     def direction(self) -> int:
-        """+1 or -1 when the (1 - alpha) interval excludes zero, otherwise 0."""
-        lo, hi = self.zero_interval
-        if lo > 0:
-            return 1
-        if hi < 0:
-            return -1
-        return 0
+        """+1 or -1 when the difference from zero is established, otherwise 0."""
+        if not self.differs_from_zero:
+            return 0
+        return 1 if self.estimate > 0 else -1
 
     def to_dict(self) -> dict:
         out = {
@@ -236,16 +244,22 @@ def evaluate(
         if not (math.isfinite(low) and math.isfinite(high) and low < 0 < high):
             raise ValueError("sesoi bounds must be finite with low < 0 < high")
 
+    # Every decision is made from a test statistic in which the bound is subtracted
+    # before dividing by the standard error; intervals are for reporting. This keeps a
+    # decision and its p-value in agreement even when estimate and bound are large and close.
     dist = _dist(df)
     zero_level = 1 - alpha
+    c_zero = float(dist.isf(alpha / 2))
     zero_iv = _interval_tail(estimate, se, alpha / 2, df)
     p_zero = float(min(1.0, 2 * dist.sf(abs(estimate) / se)))
-    differs = zero_iv[0] > 0 or zero_iv[1] < 0
+    differs = abs(estimate) / se > c_zero
+    if not all(math.isfinite(v) for v in zero_iv):
+        raise ValueError("the estimate or standard error is too large for floating point; rescale the outcome")
 
     if sesoi is None:
-        if zero_iv[0] > 0:
+        if differs and estimate > 0:
             cls = "differs_positive"
-        elif zero_iv[1] < 0:
+        elif differs:
             cls = "differs_negative"
         else:
             cls = "inconclusive_no_sesoi"
@@ -263,17 +277,21 @@ def evaluate(
     eq_threshold = alpha / 2 if policy == "single" else alpha
     eq_level = 1 - 2 * eq_threshold
     eq_iv = _interval_tail(estimate, se, eq_threshold, df)
-    p_eq = float(max(dist.sf((estimate - low) / se), dist.cdf((estimate - high) / se)))
-    equivalent = low < eq_iv[0] and eq_iv[1] < high
+    c_eq = float(dist.isf(eq_threshold))
+    z_low, z_high = (estimate - low) / se, (high - estimate) / se
+    if not (math.isfinite(z_low) and math.isfinite(z_high) and all(math.isfinite(v) for v in eq_iv)):
+        raise ValueError("the inputs are too large for floating point; rescale the outcome and the SESOI")
+    p_eq = float(max(dist.sf(z_low), dist.sf(z_high)))
+    equivalent = z_low > c_eq and z_high > c_eq
 
     # Minimal effect (MET): reject H0: low <= theta <= high in either direction,
     # alpha / 2 per direction, i.e. the (1 - alpha) interval beyond a bound.
     met_threshold = alpha / 2
     met_level = 1 - alpha
     met_iv = zero_iv
-    p_met = float(min(dist.sf((estimate - high) / se), dist.cdf((estimate - low) / se)))
-    met_pos = met_iv[0] > high
-    met_neg = met_iv[1] < low
+    p_met = float(min(dist.sf(-z_high), dist.sf(-z_low)))
+    met_pos = -z_high > c_zero
+    met_neg = -z_low > c_zero
     exceeds = met_pos or met_neg
 
     # Wording only: an interval that passes a bound by floating-point noise
@@ -289,7 +307,7 @@ def evaluate(
         cls = "nonzero_negligible"
     elif equivalent:
         cls = "equivalent"
-    elif differs and zero_iv[0] > 0:
+    elif differs and estimate > 0:
         cls = "positive_importance_undetermined"
     elif differs:
         cls = "negative_importance_undetermined"
@@ -303,7 +321,7 @@ def evaluate(
 
     # Only under "standard": equivalence read from the (1 - 2 alpha) interval
     # while the (1 - alpha) interval reaches outside the bounds.
-    conflict = bool(equivalent and not (low < zero_iv[0] and zero_iv[1] < high))
+    conflict = bool(equivalent and not (z_low > c_zero and z_high > c_zero))
 
     return Evidence(
         estimate, se, df, alpha, policy, (low, high),

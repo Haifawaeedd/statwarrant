@@ -15,12 +15,17 @@ importance, and it can flag common misreadings in a sentence you are about to wr
 > and the sentence linter's accuracy has not been measured. Use it as an aid to careful
 > reporting, not as a validator, and check its output. Reports of wrong results are very welcome.
 
-> **Known limitations in 0.4.1:** The sentence linter can use the zero-test p-value
-> when a sentence names an equivalence or minimal-effect test; it can also misread
-> combined direction-and-threshold claims. Check all linter output against the
-> original analysis. At extreme numerical precision near a threshold, the reported
-> p-value and decision can disagree. See [KNOWN_ISSUES.md](KNOWN_ISSUES.md) for
-> examples and other limitations before using this alpha.
+> **0.4.2 review branch — not a release.** Independent review found unresolved
+> errors: the sentence linter can bind a p-value to the wrong test, hide an unchecked
+> direction, or apply percentage-point conversion to the wrong units; reported
+> threshold cut-offs can also contradict the decision. Check the entire result and
+> sentence independently. See [KNOWN_ISSUES.md](KNOWN_ISSUES.md) for reproducible
+> examples and further numerical and paired-data limitations.
+>
+> The `v0.4.2` tag in the install instructions below does not exist during branch
+> review. To try this branch, use
+> `pip install "git+https://github.com/Haifawaeedd/statwarrant@release-0.4.2"`.
+> Pin a commit if reproducing a review, since branch contents may change.
 
 It does not invent new statistics. It combines established methods (tests of
 difference, equivalence and minimal effect; design analysis) into one consistent
@@ -106,7 +111,7 @@ the output says so.
 ## Install
 
 ```bash
-pip install "git+https://github.com/Haifawaeedd/statwarrant@v0.4.1"
+pip install "git+https://github.com/Haifawaeedd/statwarrant@v0.4.2"
 ```
 
 Pin the version you used, so your analysis can be reproduced. Requires Python 3.9+,

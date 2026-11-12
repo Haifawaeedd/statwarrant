@@ -1,6 +1,44 @@
 # Changelog
 
-## 0.4.1 (unreleased)
+## 0.4.2 (unreleased)
+
+Fixes from the first-user experiment (three real datasets), its independent review, and
+`KNOWN_ISSUES.md` for 0.4.1.
+
+**Sentence linter**
+
+* p-values and "significant" / "not significant" are bound to the test named in the
+  same phrase, before or after the p-value, for equalities and inequalities. A p-value
+  that matches a test named elsewhere in the sentence gives `check`; naming two tests
+  together gives `check`.
+* "Percentage points" are rescaled when the result is stored as a proportion
+  (0.9 percentage points = 0.009).
+* "Did not differ significantly" is read as non-significance, not as "no effect" plus
+  "significant".
+* A direction noun that names the outcome ("effect on grade improvement", or the
+  declared outcome's own wording) is not read as a direction claim.
+* "Equivalently" is recognised; "within ±0.02" is checked against the declared bounds;
+  "was A to B" is read as an interval.
+* Acronyms ("PSI", "SVM's") and words of the declared outcome or scope inside a hedge
+  are treated as names, not unchecked content.
+
+**Statistics and inputs**
+
+* Every decision is computed from a test statistic in which the bound is subtracted
+  before dividing by the standard error; `Thresholds.decision()` uses the same
+  arithmetic. Decisions and p-values now agree near a threshold.
+* SciPy null values at large offsets are recorded correctly (tolerance tied to machine
+  precision).
+* Malformed reported p-values are refused; tiny p-values are compared on the log scale;
+  inputs too large for floating point are refused.
+* `analyze_paired` records the number of differing items and adds a caution when fewer
+  than 10 items differ.
+
+**Docs**
+
+* `KNOWN_ISSUES.md` lists what 0.4.2 fixed and what remains.
+
+## 0.4.1
 
 Fixes from the final review of 0.4.0. One changed numerical results: SciPy results
 on data far from zero relative to their spread (for example 1e14 +/- 0.3).

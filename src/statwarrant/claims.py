@@ -27,6 +27,7 @@ from __future__ import annotations
 import math
 import re
 from dataclasses import dataclass, field
+from decimal import Decimal
 from typing import Dict, List, Optional, Tuple
 
 from ._core import Evidence, level_text
@@ -165,6 +166,7 @@ class Context:
     scope: Optional[str] = None
     better: str = "higher"
     baseline: Optional[float] = None
+    outcome: Optional[str] = None
 
     def u(self, x: float) -> str:
         return f"{fmt(x)} {self.units}" if self.units else fmt(x)
@@ -230,6 +232,8 @@ _DIRECTION = {
 _WORD_PATTERNS = [
     ("_skip", r"\bfalse (?:positives?|negatives?)\b|\bscope:"),
     # naming a procedure is not a claim about its outcome
+    ("_skip", r"\b(?:equivalence|minim(?:al|um)[- ]effects?) (?:and|or) (?:equivalence|minim(?:al|um)[- ]effects?) "
+              r"(?:tests?|testing|analys[ie]s)\b"),
     ("_skip", r"\b(?:equivalence|minimal[- ]effects?|non-?inferiority) (?:tests?|testing|analys[ie]s|procedures?|"
               r"bounds?|margins?|regions?)\b|\btost\b"),
     ("probability_misreading", r"\b(?:probability|chance|likelihood)\s+(?:that|of)\s+(?:the\s+)?(?:true\s+)?"
@@ -257,10 +261,11 @@ _WORD_PATTERNS = [
                  r"\b(?:statistical\s+)?evidence\s+(?:of|for|that)\b"),
     ("marginal", r"\b(?:marginally|borderline|nearly|almost) (?:statistically )?significant\b|"
                  r"\b(?:approach(?:ed|es|ing)?|trend(?:ed|ing)? toward(?:s)?) (?:statistical )?significance\b"),
-    ("nonsignificance", r"\b(?:not (?:statistically )?significant(?:ly)?|no (?:statistically )?significant|"
+    ("nonsignificance", r"\b(?:(?:did|does|do|was|were|is|are)\s*(?:not|n't)\s+[a-z]+\s+(?:statistically\s+)?"
+                        r"significantly|not (?:statistically )?significant(?:ly)?|no (?:statistically )?significant|"
                         r"non-?significant(?:ly)?|insignificant|did not reach (?:statistical )?significance|"
                         r"failed to reach (?:statistical )?significance)\b"),
-    ("equivalence", r"\b(?:equivalent|equivalence|comparable|on par|as (?:good|effective|accurate) as|"
+    ("equivalence", r"\b(?:equivalently|equivalent|equivalence|comparable|on par|as (?:good|effective|accurate) as|"
                     r"practically (?:the same|identical|indistinguishable)|indistinguishable|interchangeable|"
                     r"no (?:meaningful|practical|practically important|important|relevant|practically relevant|"
                     r"substantial|notable|appreciable|clinically relevant|clinically meaningful) " + _NOUNS + r"|"
@@ -322,7 +327,8 @@ _NUMBER_PATTERNS = [
     # an ordered pair: "[1.0, 7.4]", "(1.0 to 7.4)", "from 1.0 to 7.4", "between 1.0 and 7.4", "of 1.0 to 7.4"
     ("range", re.compile(r"[\[(]\s*(" + _NUM + r")\s*(?:[a-z]+\s*)?(?:,|;|to|-)\s*(" + _NUM + r")\s*(?:[a-z]+\s*)?[\])]|"
                          r"\b(?:from|between|of|ranged from|ranging from)\s+(" + _NUM + r")\s*(?:[a-z]+\s+)?"
-                         r"(?:to|and)\s+(" + _NUM + r")")),
+                         r"(?:to|and)\s+(" + _NUM + r")|"
+                         r"\b(?:was|is|were)\s+(" + _NUM + r")\s*(?:[a-z]+\s+)?to\s+(" + _NUM + r")")),
     ("magnitude", re.compile(r"\bby\s+(?:(" + _QUAL + r")\s+)?(" + _NUM + r")")),
 ]
 _CHANGE_WORDS = (r"(?:improvements?|gains?|increases?|decreases?|drops?|rises?|reductions?|differences?|effects?|"
@@ -336,14 +342,62 @@ _ROLE_PAIR = [
 ]
 _ROLE_NUMBER = [
     ("estimate", re.compile(r"\b(?:effect|estimate|estimated effect|difference|mean difference|change|improvement|gain|"
+                            r"advantage|lead|benefit|"
                             r"increase|decrease|effect size)\s+(?:size\s+)?(?:was|is|of|were|equals?|=|:)\s*"
                             r"(?:about|approximately|around|roughly|~)?$")),
     ("standard error", re.compile(r"\b(?:se|s\.e\.|standard error)\s*(?:was|is|of|=|:)?$")),
     ("degrees of freedom", re.compile(r"\b(?:df|degrees of freedom)\s*(?:was|is|of|=|:)?$|\bt\s*\($")),
-    ("smallest effect size of interest", re.compile(r"(?:smallest effect size of interest|sesoi|threshold)\s*"
+    ("smallest effect size of interest", re.compile(r"(?:(?:within|bounds? of|margin of)\s*(?:±|\+/-|\+-|plus or minus)\s*$)|"
+                                                    r"(?:smallest effect size of interest|sesoi|threshold)\s*"
                                                     r"(?:of|was|is|=|:)?\s*\(?$")),
     ("baseline", re.compile(r"\b(?:baseline|control mean|reference level)\s*(?:of|was|is|=|:)?$")),
 ]
+
+
+_TEST_NAMES = {
+    "equivalence": re.compile(r"\bequivalence (?:tests?|testing|analys[ie]s)\b|\btost\b|\btests? (?:of|for) equivalence\b|"
+                              r"\btwo one-sided tests?\b"),
+    "minimal-effect": re.compile(r"\bminim(?:al|um)[- ]effects? (?:tests?|testing|analys[ie]s)\b|\bmet\b|"
+                                 r"\btests? (?:of|for) (?:a )?minim(?:al|um) effects?\b"),
+}
+_BOTH_TESTS = re.compile(r"\b(?:equivalence|minim(?:al|um)[- ]effects?) (?:and|or) (?:equivalence|minim(?:al|um)[- ]effects?) "
+                         r"(?:tests?|testing|analys[ie]s)\b")
+_SEGMENT_BREAK = re.compile(r"[,;()\[\]]|\.(?!\d)")
+_CLAUSE_BREAK = re.compile(r";|\.(?!\d)")
+
+
+def _bounded(text: str, start: int, end: int, breaks) -> str:
+    left = max((m.end() for m in breaks.finditer(text, 0, start)), default=0)
+    m = breaks.search(text, end)
+    return text[left:m.start() if m else len(text)]
+
+
+def _named_test(original: str, start: int, end: int) -> Tuple[Optional[str], bool]:
+    """The test a p-value or significance word refers to, from the words around it.
+
+    Returns (name, named_elsewhere): name is "equivalence", "minimal-effect",
+    "ambiguous" or None (the zero test); named_elsewhere says that another part of the
+    clause names a test, so a mismatch may be a binding problem rather than an error.
+    """
+    seg = _bounded(original, start, end, _SEGMENT_BREAK)
+    if _BOTH_TESTS.search(seg):
+        return "ambiguous", False
+    found = [n for n, pat in _TEST_NAMES.items() if pat.search(seg)]
+    if not found:
+        # "The equivalence test was not significant (p = 0.77)": a parenthesis belongs to
+        # the words just before it, back to the previous comma or semicolon.
+        left = max((m.end() for m in _SEGMENT_BREAK.finditer(original, 0, start)), default=0)
+        if left > 0 and original[left - 1] == "(":
+            lead_start = max((m.end() for m in re.finditer(r"[,;]|\.(?!\d)|\b(?:but|and|while|whereas)\b",
+                                                           original[:left - 1])), default=0)
+            lead = original[lead_start:left - 1]
+            found = [n for n, pat in _TEST_NAMES.items() if pat.search(lead)]
+    if len(found) > 1:
+        return "ambiguous", False
+    if found:
+        return found[0], False
+    clause = _bounded(original, start, end, _CLAUSE_BREAK)
+    return None, any(pat.search(clause) for pat in _TEST_NAMES.values())
 
 
 def _pair_role(context: str, phrase: str) -> str:
@@ -504,6 +558,10 @@ def _scan(sentence: str, ctx: Context):
             blank(m.start(), m.end())
 
     hits: List[_Hit] = []
+    outcome_spans = []
+    if ctx.outcome:
+        phrase = _normalize(ctx.outcome)[0].strip()
+        outcome_spans = [m.span() for m in re.finditer(re.escape(phrase), original)] if phrase else []
 
     # Numbers first, so "95% CI" is not read as a percentage change.
     for name, pat in _NUMBER_PATTERNS:
@@ -513,8 +571,10 @@ def _scan(sentence: str, ctx: Context):
                 first = min((m.start(i) for i in range(1, (m.lastindex or 0) + 1) if m.group(i) is not None),
                             default=m.start())
                 context = original[max(0, m.start() - 60):first]
+                named, elsewhere = _named_test(original, m.start(), m.end())
                 hits.append(_Hit(name, m.group(0).strip(), m.start(), m.end(),
-                                 {"groups": list(m.groups()), "context": context}))
+                                 {"groups": list(m.groups()), "context": context, "named": named,
+                                  "named_elsewhere": elsewhere}))
             blank(m.start(), m.end())
     if ctx.units:
         unit = re.escape(ctx.units.lower().strip().rstrip("s"))
@@ -534,9 +594,39 @@ def _scan(sentence: str, ctx: Context):
     for name, pat in _COMPILED:
         for m in list(pat.finditer(text)):
             if name != "_skip":
-                hits.append(_Hit(name, m.group(0).strip(), m.start(), m.end()))
+                named, elsewhere = _named_test(original, m.start(), m.end())
+                hits.append(_Hit(name, m.group(0).strip(), m.start(), m.end(),
+                                 {"before": original[max(0, m.start() - 40):m.start()], "named": named,
+                                  "named_elsewhere": elsewhere, "orig": _span(sentence, idx, m.start(), m.end())[0],
+                                  "in_outcome": any(a <= m.start() and m.end() <= b for a, b in outcome_spans)}))
             blank(m.start(), m.end())
+
+    # "0.9 percentage points" about a result stored as a proportion (0.009): read the
+    # sentence's outcome-scale numbers on the stored scale.
+    if _percentage_points(original, ctx):
+        for h in hits:
+            if h.category in ("magnitude", "range") and h.data.get("groups"):
+                h.data["groups"] = [_scale_pp(g) if g is not None and re.fullmatch(_NUM, g) else g
+                                    for g in h.data["groups"]]
+                h.data["pp"] = True
+            elif h.category == "number":
+                h.phrase = _scale_pp(h.phrase)
+                h.data["pp"] = True
     return hits, text, covered, idx
+
+
+def _percentage_points(original: str, ctx: Context) -> bool:
+    if not re.search(r"percentage[- ]points?|\bpp\b|%[- ]points?", original):
+        return False
+    if ctx.units and re.search(r"percent|point|%", ctx.units.lower()):
+        return False  # the result is already on a percentage scale
+    ev = ctx.evidence
+    return max(abs(ev.estimate), abs(ev.zero_interval[0]), abs(ev.zero_interval[1])) <= 1
+
+
+def _scale_pp(s: str) -> str:
+    """A written number in percentage points, as a proportion with the same precision (0.9 -> 0.009)."""
+    return format(Decimal(s).scaleb(-2), "f")
 
 
 def _unchecked(sentence: str, text: str, covered: List[bool], idx: List[int], units: Optional[str]) -> Tuple[str, ...]:
@@ -609,6 +699,11 @@ def _judge_hit(h: _Hit, ctx: Context, sign: Optional[int]) -> Tuple[str, str]:
                              f"Say the effect is practically equivalent within these bounds.")
         return CONFLICT, (f"A non-significant result is not evidence of no effect: the data are compatible with "
                          f"effects from {ctx.u(lo)} to {ctx.u(hi)} ({z}).")
+
+    named = h.data.get("named")
+    if named in ("equivalence", "minimal-effect", "ambiguous") and cat in (
+            "significance", "nonsignificance", "evidence_absent", "marginal"):
+        return _judge_named_test(cat, named, ctx)
 
     if cat in ("nonsignificance", "evidence_absent"):
         if ev.differs_from_zero and sign in (1, -1) and ev.direction == -sign:
@@ -727,20 +822,51 @@ def _judge_hit(h: _Hit, ctx: Context, sign: Optional[int]) -> Tuple[str, str]:
         return CONFLICT, f"The result is not inconclusive: it is classified as '{ev.claim_class.replace('_', ' ')}'."
 
     if cat in ("not_established", "not_ruled_out", "compatible", "cannot_judge"):
-        return _judge_uncertainty(cat, h.phrase, ctx)
+        return _judge_uncertainty(cat, h.phrase, ctx, h.data.get("orig"))
 
     raise KeyError(cat)
 
 
-def _unassessed(phrase: str, ctx: Context) -> List[str]:
-    """Content words in a hedge phrase that the hedge rules do not assess."""
+def _judge_named_test(cat: str, named: str, ctx: Context) -> Tuple[str, str]:
+    """'The equivalence test was (not) significant' and the like."""
+    ev = ctx.evidence
+    if named == "ambiguous":
+        return CHECK, "This part names more than one test, so statwarrant cannot tell which result is meant."
+    if ev.sesoi is None:
+        return CHECK, f"No {named} test was run: no smallest effect size of interest was declared."
+    if named == "equivalence":
+        decided, q, thr, iv = ev.equivalent, ev.p_equivalence, ev.equivalence_threshold, ctx.ci_text("equivalence")
+    else:
+        decided, q, thr, iv = ev.exceeds_sesoi, ev.p_minimal_effect, ev.met_threshold, ctx.ci_text()
+    says_significant = cat == "significance"
+    if cat == "marginal":
+        return CHECK, f"The {named} test gives p = {q:.4g} against a per-side threshold of {fmt(thr)} ({iv})."
+    if says_significant == decided:
+        return CONSISTENT, f"The {named} test gives p = {q:.4g} against a per-side threshold of {fmt(thr)} ({iv})."
+    return CONFLICT, (f"The {named} test {'does not reject' if says_significant else 'rejects'}: p = {q:.4g} against "
+                      f"a per-side threshold of {fmt(thr)} ({iv}).")
+
+
+def _unassessed(phrase: str, ctx: Context, original_words: Optional[str] = None) -> List[str]:
+    """Content words in a hedge phrase that the hedge rules do not assess.
+
+    Names are not claims: acronyms written in capitals ("PSI", "SVM's") and words of
+    the declared outcome or scope are ignored.
+    """
+    names = set()
+    if original_words:
+        names.update(w.lower() for w in re.findall(r"\b[A-Z][A-Z0-9]+(?=\b|'s)", original_words))
+    for text in (ctx.outcome, ctx.scope):
+        if text:
+            names.update(re.findall(r"[a-z][a-z'\-]*", text.lower()))
     units = set()
     if ctx.units:
         for w in re.findall(r"[a-z][a-z'\-]*", ctx.units.lower()):
             units.update({w, w.rstrip("s"), w.rstrip("s") + "s"})
     out = []
     for w in re.findall(r"[a-z][a-z'\-]*", phrase):
-        if w in _STOP or w in _HEDGE_VOCAB or w in units:
+        w = w[:-2] if w.endswith("'s") else w
+        if w in _STOP or w in _HEDGE_VOCAB or w in units or w in names:
             continue
         if any(pat.fullmatch(w) for pat in _DIRECTION.values()):
             continue
@@ -748,9 +874,9 @@ def _unassessed(phrase: str, ctx: Context) -> List[str]:
     return out
 
 
-def _judge_uncertainty(cat: str, phrase: str, ctx: Context) -> Tuple[str, str]:
+def _judge_uncertainty(cat: str, phrase: str, ctx: Context, original_words: Optional[str] = None) -> Tuple[str, str]:
     status, reason = _judge_uncertainty_core(cat, phrase, ctx)
-    extra = _unassessed(phrase, ctx)
+    extra = _unassessed(phrase, ctx, original_words)
     if status == CONSISTENT and extra:
         return CHECK, (f"{reason} But the phrase also says '{' '.join(extra)}', which statwarrant did not check, "
                        f"so the phrase as a whole is not confirmed.")
@@ -861,29 +987,32 @@ def _judge_number(h: _Hit, ctx: Context, sign: Optional[int], known) -> Tuple[st
     if h.category == "p_value":
         op, s = g[0].strip(), g[1]
         x = float(s)
-        # Inequalities are compared exactly: rounding is the writer's job.
-        if op in ("<", "<="):
-            if ev.p_zero < x or (op == "<=" and ev.p_zero == x):
-                return CONSISTENT, f"The zero test gives p = {ev.p_zero:.4g}."
-            return CONFLICT, f"The zero test gives p = {ev.p_zero:.4g}, which is not {op} {s}."
-        if op in (">", ">="):
-            if ev.p_zero > x or (op == ">=" and ev.p_zero == x):
-                return CONSISTENT, f"The zero test gives p = {ev.p_zero:.4g}."
-            return CONFLICT, f"The zero test gives p = {ev.p_zero:.4g}, which is not {op} {s}."
-        # Which test is this p-value about? The equivalence or minimal-effect test only
-        # when the sentence says so; otherwise the test of difference from zero.
-        context = h.data.get("context", "")
-        if re.search(r"equivalen|\btost\b", context) and ev.p_equivalence is not None:
-            name, q = "equivalence test", ev.p_equivalence
-        elif re.search(r"minimal[- ]effect|\bmet\b", context) and ev.p_minimal_effect is not None:
-            name, q = "minimal-effect test", ev.p_minimal_effect
-        else:
-            name, q = "zero test", ev.p_zero
-        # Equal up to the written rounding, and not off by more than half the value itself
-        # (so "p = 0" never matches p = 0.011).
-        if x > 0 and _close(x, s, q) and abs(x - q) <= 0.5 * q:
+        named, elsewhere = h.data.get("named"), h.data.get("named_elsewhere")
+        if named == "ambiguous":
+            return CHECK, "This part names more than one test, so statwarrant cannot tell which p-value is meant."
+        tests = {None: ("zero test", ev.p_zero), "equivalence": ("equivalence test", ev.p_equivalence),
+                 "minimal-effect": ("minimal-effect test", ev.p_minimal_effect)}
+        name, q = tests[named]
+        if q is None:
+            return CHECK, f"No {name} was run: no smallest effect size of interest was declared."
+
+        def holds(value: float) -> bool:
+            # Inequalities are compared exactly (rounding is the writer's job). Equality must
+            # match the written rounding and be within half the value ("p = 0" never matches).
+            if op in ("<", "<="):
+                return value < x or (op == "<=" and value == x)
+            if op in (">", ">="):
+                return value > x or (op == ">=" and value == x)
+            return x > 0 and _close(x, s, value) and abs(x - value) <= 0.5 * value
+
+        if holds(q):
             return CONSISTENT, f"Matches the p-value of the {name} ({q:.4g})."
-        return CONFLICT, f"The {name} gives p = {q:.4g}, not {s}."
+        if named is None and elsewhere:
+            for other, (oname, oq) in tests.items():
+                if other is not None and oq is not None and holds(oq):
+                    return CHECK, (f"Does not match the zero test (p = {q:.4g}) but matches the {oname} named "
+                                   f"elsewhere in the sentence (p = {oq:.4g}); name the test next to the p-value.")
+        return CONFLICT, f"The {name} gives p = {q:.4g}, which is not {'' if op in ('=', 'of', 'was', 'is', ':') else op + ' '}{s}."
 
     if h.category == "percentage":
         s = g[0]
@@ -1035,6 +1164,19 @@ def _judge_role_number(h: _Hit, role: str, ctx: Context, sign: Optional[int]) ->
 
 
 _DIRECTION_WORDS = tuple(_DIRECTION)
+_DIRECTION_NOUNS = re.compile(r"(?:improvements?|increases?|decreases?|gains?|reductions?|declines?|rises?|drops?|"
+                              r"benefits?|harms?)")
+
+
+def _names_outcome(h: "_Hit", ctx: Context) -> bool:
+    """'effect on grade improvement': the noun names what was measured, not a direction."""
+    if not _DIRECTION_NOUNS.fullmatch(h.phrase):
+        return False
+    if h.data.get("in_outcome"):  # inside the declared outcome's own wording
+        return True
+    before = h.data.get("before", "")
+    return bool(re.search(r"(?:effects?|impacts?|differences?|changes?|associations?|influence)\s+"
+                          r"(?:on|in|of|for|with)\s+(?:[a-z'-]+\s+){0,2}$", before))
 _NUMBER_CATS = {"interval_level", "alpha_level", "p_value", "percentage", "magnitude", "range"}
 _FOLDED = {"importance", "big", "significance"}
 _NEGATING = {"nonsignificance", "evidence_absent", "marginal"}
@@ -1088,6 +1230,8 @@ def check_sentence(sentence: str, ctx: Context) -> CheckResult:
     signs = set()
     carriers = []
     for h in hits:
+        if h.category in _DIRECTION_WORDS and _names_outcome(h, ctx):
+            continue
         if h.category in _DIRECTION_WORDS or h.category == "small":
             sg = _sign_of(h.phrase, ctx.better)
             if sg is not None:
@@ -1106,10 +1250,14 @@ def check_sentence(sentence: str, ctx: Context) -> CheckResult:
                 unknown.append((h, _match_known(float(h.phrase), h.phrase, known)))
             else:
                 status, reason = _judge_role_number(h, role, ctx, sign)
+                if h.data.get("pp"):
+                    reason += " (Read as percentage points of a proportion.)"
                 parts.append(part("reported_number", [h], status, reason))
             continue
         if h.category in _NUMBER_CATS:
             status, reason = _judge_number(h, ctx, sign, known)
+            if h.data.get("pp"):
+                reason += " (Numbers read as percentage points of a proportion.)"
         else:
             status, reason = _judge_hit(h, ctx, sign)
         parts.append(part(h.category, [h], status, reason))

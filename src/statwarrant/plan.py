@@ -11,6 +11,8 @@ import hashlib
 import json
 import math
 from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal
+
+import numpy as np
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from typing import Optional, Sequence, Tuple, Union
@@ -27,6 +29,10 @@ from .design import DesignTable, design_table
 SYMMETRY_TOLERANCE = 0.05
 
 SCHEMA = "statwarrant-result/2"
+
+# Below this many items that differ between the two conditions, analyze_paired adds a
+# caution: the t approximation behind the interval can be poor.
+FEW_DIFFERING_ITEMS = 10
 
 
 def _round_dir(x: float, up: bool, sig: int = 4) -> str:
@@ -175,10 +181,17 @@ class Plan:
         """Item-level paired scores, e.g. model A and model B on the same test questions (A - B)."""
         est, s, d = adapters.paired(a, b, cluster)
         source = "paired item scores" + (" (cluster-robust SE)" if cluster is not None else "")
+        differing = int(np.count_nonzero(np.asarray(a, dtype=float) - np.asarray(b, dtype=float)))
         # n_clusters comes from the same grouping the inference used (df = G - 1).
-        raw = {"n_items": len(a), "n_clusters": None if cluster is None else int(round(d)) + 1,
-               "baseline": _raw(baseline)}
-        return self._finish(est, s, d, source, baseline, 0.0, label, raw)
+        raw = {"n_items": len(a), "n_differing_items": differing,
+               "n_clusters": None if cluster is None else int(round(d)) + 1, "baseline": _raw(baseline)}
+        res = self._finish(est, s, d, source, baseline, 0.0, label, raw)
+        if differing < FEW_DIFFERING_ITEMS:
+            res.claims.notes.insert(0, (
+                f"Only {differing} of {len(a)} items differ between the two conditions. The interval is a t "
+                f"approximation, which can be poor with so few differing items; the conclusion is conditional on "
+                f"it. Check it with an exact method for paired data (e.g. an exact interval on the discordant items)."))
+        return res
 
     def _finish(self, est, s, d, source, baseline, null: float = 0.0, label: Optional[str] = None,
                 raw: Optional[dict] = None) -> "Result":
@@ -187,7 +200,7 @@ class Plan:
             if not math.isfinite(baseline) or baseline == 0:
                 raise ValueError("baseline must be a finite, non-zero number (a relative change needs a non-zero reference)")
         ev = evaluate(est, s, d, self.alpha, self.interval_policy, self.sesoi)
-        ctx = Context(ev, self.units, self.scope, self.better, baseline)
+        ctx = Context(ev, self.units, self.scope, self.better, baseline, self.outcome)
         claims = build_claims(ctx)
         if null != 0.0:
             claims.notes.insert(0, f"The effect is the difference from the test's null value {fmt(null)} "
