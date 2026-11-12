@@ -1,5 +1,4 @@
 import math
-import warnings
 
 import numpy as np
 import pytest
@@ -62,14 +61,15 @@ def test_statsmodels_ols_term():
         sw.declare().analyze(fit)
 
 
-def test_interval_input_and_asymmetry_warning():
+def test_interval_input_and_asymmetry_is_refused():
     res = sw.declare().analyze(ci=(1.0, 7.4), df=58)
     assert res.evidence.estimate == pytest.approx(4.2)
     assert res.evidence.se == pytest.approx(3.2 / stats.t.ppf(0.975, 58))
-    with warnings.catch_warnings(record=True) as w:
-        warnings.simplefilter("always")
+    # rounding is fine: the midpoint is used and the published interval reproduced
+    ok = sw.declare().analyze(estimate=4.21, ci=(1.0, 7.4), df=58)
+    assert ok.evidence.zero_interval == pytest.approx((1.0, 7.4))
+    with pytest.raises(ValueError, match="not symmetric"):
         sw.declare().analyze(estimate=1.5, ci=(1.1, 2.4))
-    assert any("log scale" in str(x.message) for x in w)
 
 
 def test_cluster_se_with_singletons_equals_paired_se():

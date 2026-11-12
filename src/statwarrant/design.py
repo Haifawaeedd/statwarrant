@@ -21,6 +21,7 @@ from typing import List, Optional, Sequence
 
 from scipy import stats
 
+from ._core import level_text
 from .claims import fmt
 
 
@@ -39,7 +40,7 @@ class DesignPoint:
         if self.assumed_effect == 0:
             return (
                 f"Under an assumed true effect of 0, the chance of a significant result equals alpha "
-                f"({alpha:.0%}). Type S and the exaggeration ratio are undefined: a zero effect has no sign, "
+                f"({level_text(alpha)}). Type S and the exaggeration ratio are undefined: a zero effect has no sign, "
                 f"and the ratio would divide by zero."
             )
         return (
@@ -65,6 +66,8 @@ def design_point(assumed_effect: float, se: float, alpha: float = 0.05) -> Desig
     if not 0 < alpha < 1:
         raise ValueError("alpha must be between 0 and 1")
     A = float(assumed_effect)
+    if not math.isfinite(A):
+        raise ValueError("assumed effects must be finite numbers")
     z = stats.norm.ppf(1 - alpha / 2)
     c = z * se
     a = (c - A) / se  # standardised upper cut
@@ -134,6 +137,10 @@ def design_table(
     df: Optional[float] = None,
 ) -> DesignTable:
     effects = [float(x) for x in assumed_effects]
+    if not all(math.isfinite(x) for x in effects):
+        raise ValueError("assumed effects must be finite numbers")
+    if observed is not None and not math.isfinite(float(observed)):
+        raise ValueError("the observed estimate must be a finite number")
     if len(effects) < 2:
         raise ValueError(
             "give a range of at least two plausible effects; a single value hides how sensitive the design is"

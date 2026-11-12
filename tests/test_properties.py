@@ -38,8 +38,8 @@ def test_scale_invariance(est, se, d, policy, c):
     a = evaluate(est, se, None, 0.05, policy, (-d, d))
     b = evaluate(est * c, se * c, None, 0.05, policy, (-d * c, d * c))
     # skip inputs sitting within rounding distance of a decision boundary
-    assume(min(abs(x) for x in (a.p_zero - 0.05, a.p_equivalence - a.bounds_threshold,
-                                a.p_minimal_effect - a.bounds_threshold)) > 1e-9)
+    assume(min(abs(x) for x in (a.p_zero - 0.05, a.p_equivalence - a.equivalence_threshold,
+                                a.p_minimal_effect - a.met_threshold)) > 1e-9)
     assert a.claim_class == b.claim_class
 
 

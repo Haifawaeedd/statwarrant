@@ -21,66 +21,77 @@ def test_allowed_claims_never_fail_the_checker(name, policy):
     claims = build_claims(ctx)
     assert claims.allowed
     for c in claims.allowed:
-        assert check_sentence(c.text, ctx).verdict != "blocked", c.text
+        assert check_sentence(c.text, ctx).status == "no_warnings", str(check_sentence(c.text, ctx))
 
 
 @pytest.mark.parametrize("name", SCENARIOS)
 def test_no_effect_is_always_blocked(name):
     est, se, d, *_ = SCENARIOS[name]
-    for s in ["There is no effect.", "The intervention did not improve scores.", "There was no difference."]:
-        assert check_sentence(s, ctx_for(est, se, d)).verdict == "blocked", s
+    for s in ["There is no effect.", "There was no difference."]:
+        assert check_sentence(s, ctx_for(est, se, d)).level == "conflict", s
+
+
+@pytest.mark.parametrize("name", SCENARIOS)
+def test_negated_direction(name):
+    est, se, d, *_ = SCENARIOS[name]
+    ctx = ctx_for(est, se, d)
+    level = check_sentence("The intervention did not improve scores.", ctx).level
+    # Literally true only when the data show the opposite direction; never without a warning.
+    assert level == ("check" if ctx.evidence.direction == -1 else "conflict")
 
 
 def test_nonsignificance_wording_needs_care_or_is_blocked():
     insig = ctx_for(0.15, 0.2)
     sig = ctx_for(0.6, 0.1)
     s = "The difference was not statistically significant."
-    assert check_sentence(s, insig).verdict == "needs_care"
-    assert check_sentence(s, sig).verdict == "blocked"
+    assert check_sentence(s, insig).level == "check"
+    assert check_sentence(s, sig).level == "conflict"
 
 
 def test_equivalence_claim_only_when_established():
     s = "The two methods are equivalent."
-    assert check_sentence(s, ctx_for(0.02, 0.05)).verdict == "allowed"
-    assert check_sentence(s, ctx_for(0.08, 0.03)).verdict == "allowed"  # nonzero but negligible
-    assert check_sentence(s, ctx_for(0.15, 0.2)).verdict == "blocked"
-    assert check_sentence(s, ctx_for(0.02, 0.05, d=None)).verdict == "blocked"
+    assert check_sentence(s, ctx_for(0.02, 0.05)).status == "no_warnings"
+    assert check_sentence(s, ctx_for(0.08, 0.03)).status == "no_warnings"  # nonzero but negligible
+    assert check_sentence(s, ctx_for(0.15, 0.2)).level == "conflict"
+    assert check_sentence(s, ctx_for(0.02, 0.05, d=None)).level == "conflict"
 
 
 def test_importance_and_direction():
     pos = ctx_for(0.6, 0.1)
-    assert check_sentence("The program produced a large improvement.", pos).verdict == "allowed"
-    assert check_sentence("The program produced a large decrease.", pos).verdict == "blocked"
-    assert check_sentence("Scores were lower with the program.", pos).verdict == "blocked"
-    assert check_sentence("The program had a substantial effect.", ctx_for(0.3, 0.1)).verdict == "blocked"
+    # Exceeding the SESOI supports "important", not "large".
+    assert check_sentence("The program produced a large improvement.", pos).level == "check"
+    assert check_sentence("The program produced a meaningful improvement.", pos).status == "no_warnings"
+    assert check_sentence("The program produced a large decrease.", pos).level == "conflict"
+    assert check_sentence("Scores were lower with the program.", pos).level == "conflict"
+    assert check_sentence("The program had a substantial effect.", ctx_for(0.3, 0.1)).level == "conflict"
 
 
 def test_better_lower_flips_improvement_words():
     # error rate went down by 0.5: with better="lower", "improved" is supported
     ctx = ctx_for(-0.5, 0.1, better="lower")
-    assert check_sentence("The new model improved the error rate.", ctx).verdict == "allowed"
-    assert check_sentence("The new model made the error rate worse.", ctx).verdict == "blocked"
+    assert check_sentence("The new model improved the error rate.", ctx).status == "no_warnings"
+    assert check_sentence("The new model made the error rate worse.", ctx).level == "conflict"
 
 
 def test_significance_claims():
-    assert check_sentence("The effect is statistically significant.", ctx_for(0.3, 0.1)).verdict == "allowed"
-    assert check_sentence("The effect is statistically significant.", ctx_for(0.15, 0.2)).verdict == "blocked"
-    assert check_sentence("Scores significantly decreased.", ctx_for(0.3, 0.1)).verdict == "blocked"
+    assert check_sentence("The effect is statistically significant.", ctx_for(0.3, 0.1)).status == "no_warnings"
+    assert check_sentence("The effect is statistically significant.", ctx_for(0.15, 0.2)).level == "conflict"
+    assert check_sentence("Scores significantly decreased.", ctx_for(0.3, 0.1)).level == "conflict"
 
 
 def test_generalization_certainty_percentage_unrecognized():
     ctx = ctx_for(0.6, 0.1, scope="grade 9, two schools")
     gen = check_sentence("This works for all students.", ctx)
-    assert gen.verdict == "blocked" and "grade 9" in gen.reasons[0]
-    assert check_sentence("These results prove the method works.", ctx).verdict == "blocked"
+    assert gen.level == "conflict" and any("grade 9" in p.reason for p in gen.warnings)
+    assert check_sentence("These results prove the method works.", ctx).level == "conflict"
     pct = check_sentence("Scores rose by 20%.", Context(ctx.evidence, baseline=3.0))
-    assert pct.verdict == "needs_care" and "+20.0%" in " ".join(pct.reasons)
-    assert check_sentence("We used a mixed design.", ctx).verdict == "unrecognized"
+    assert pct.level == "check" and "+20.0%" in " ".join(p.reason for p in pct.warnings)
+    assert check_sentence("We used a mixed design.", ctx).status == "no_supported_pattern"
 
 
 def test_level_conflict_note_and_json():
-    plan = sw.declare(sesoi=0.1, sesoi_source="pilot", interval_policy="standard")
-    res = plan.analyze(estimate=1.9, se=1.0)
+    plan = sw.declare(sesoi=0.2, sesoi_source="pilot", interval_policy="standard")
+    res = plan.analyze(estimate=0.10, se=0.058)
     assert any("Level conflict" in n for n in res.claims.notes)
     data = json.loads(res.to_json())
     assert data["evidence"]["level_conflict"] is True

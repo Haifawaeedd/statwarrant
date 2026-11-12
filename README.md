@@ -7,11 +7,24 @@
 
 `statwarrant` turns an estimate and its uncertainty into a **claim contract**: the
 statements your result supports, the statements it does not, and the reason for
-each. It can also check a sentence you are about to write.
+each. It shows how the conclusion changes for every possible threshold of practical
+importance, and it can flag common misreadings in a sentence you are about to write.
+
+> **Status: experimental alpha.** The statistics follow published methods and are tested
+> against SciPy and statsmodels, but the package has not been independently validated,
+> and the sentence linter's accuracy has not been measured. Use it as an aid to careful
+> reporting, not as a validator, and check its output. Reports of wrong results are very welcome.
+
+> **Known limitations in 0.4.1:** The sentence linter can use the zero-test p-value
+> when a sentence names an equivalence or minimal-effect test; it can also misread
+> combined direction-and-threshold claims. Check all linter output against the
+> original analysis. At extreme numerical precision near a threshold, the reported
+> p-value and decision can disagree. See [KNOWN_ISSUES.md](KNOWN_ISSUES.md) for
+> examples and other limitations before using this alpha.
 
 It does not invent new statistics. It combines established methods (tests of
 difference, equivalence and minimal effect; design analysis) into one consistent
-reading, and refuses claims the data cannot carry.
+reading, and aims to flag claims the data cannot carry.
 
 ```python
 import statwarrant as sw
@@ -19,6 +32,7 @@ import statwarrant as sw
 plan = sw.declare(
     sesoi=3, sesoi_source="smallest score gain teachers act on",
     units="points", scope="first-year students, one university, one term",
+    outcome="exam score", contrast="new method minus existing method",
 )
 res = plan.analyze(estimate=4.2, se=1.6, df=58)   # or a scipy / statsmodels result
 
@@ -29,23 +43,35 @@ print(res)
 The effect is positive (95% CI [0.997, 7.4]); whether it reaches the smallest effect size
 of interest (3 points) is not determined by these data. Scope: first-year students, one
 university, one term.
-Do not say: "There is no effect."; "The effect is practically important."; "The two
-conditions are equivalent."; "The effect generalizes to all settings."; "The results prove
-the effect is exactly the estimated value."
+Do not say: "There is no effect."; "The effect is practically important."; "The effect is
+large."; "The two conditions are equivalent."; "The effect generalizes to all settings.";
+"The results prove the effect is exactly the estimated value."
+Every threshold: an effect beyond ±d for any d below 0.9972 points; equivalence within ±d
+for any d above 7.403 points; neither from 0.9972520253676223 to 7.402747974632378 (exact
+cut-offs).
 ```
 
+The result is statistically significant (p = 0.011), yet the declared 3-point threshold
+is neither reached nor ruled out. The last line answers the question "what if someone
+uses a different threshold?" for every threshold at once.
+
 ```python
-print(res.check("The new method produced a large improvement."))
+print(res.check("The new method improved scores by about 4 points and is safe for all students."))
 ```
 
 ```text
-[BLOCKED] The new method produced a large improvement.
-  - The 95% CI [0.997, 7.4] includes values smaller than the smallest effect size of
-    interest ([-3, 3]).
+[1 warning] The new method improved scores by about 4 points and is safe for all students.
+  - conflict generalization         "for all": An average effect does not show that every
+    individual or case is affected, and the evidence comes from 'first-year students,
+    one university, one term' only.
+    Check: Limit the claim to the declared scope and to the average effect.
+  Consistent with the result: "improved" (direction); "by about 4" (magnitude).
+  Not checked: "The new method", "scores", "points and is safe", "students".
+  A warning is a prompt for review, not proof that the sentence is false.
 ```
 
-The result is statistically significant (p = 0.011), yet a "large improvement" is
-not supported: the data are also compatible with a 1-point gain.
+The checker only warns; it never approves a sentence. "Is safe" was not checked, and
+the output says so.
 
 ## Why
 
@@ -56,29 +82,36 @@ not supported: the data are also compatible with a 1-point gain.
   of 10 models, summaries were about five times more likely than human-written ones
   to broaden the scope of a finding (Peters & Chin-Yee, 2025).
 * The computations to prevent these mistakes exist, but in Python they are spread
-  over several packages and none of them says what you may *write*.
+  over several packages, and we know of none that checks the sentences you write
+  against the result. (In R, TOSTER already describes equivalence results in plain
+  language; see [Related tools](#related-tools).)
 
 ## What it does
 
 | Feature | What you get |
 | --- | --- |
-| Declare first | The smallest effect size of interest (SESOI) needs a stated reason, fixed before analysis. Without a SESOI, claims about importance and equivalence are withheld. |
+| Declare first | The smallest effect size of interest (SESOI) needs a stated reason. The plan has a fingerprint you can register before analysis. Without a SESOI, claims about importance and equivalence are withheld. |
 | Three tests, one reading | Difference from zero, equivalence (TOST) and minimal effect (MET), read from intervals. |
 | Claim contract | Allowed statements with numbers filled in, and a list of blocked statements with reasons. |
-| Sentence checker | `res.check("...")` judges an English sentence: `allowed`, `blocked`, `needs_care` or `unrecognized`. |
-| Level-conflict detection | Flags when the zero test and the threshold test disagree because they use different interval levels. |
+| Every threshold at once | Two numbers give the decision for every symmetric threshold: below one, the effect exceeds it; above the other, equivalence holds; in between, neither. |
+| Report with provenance | Outcome, contrast, scope, the declared threshold and its reason, the plan fingerprint and registration link, and a list of what statwarrant does not verify. Versioned JSON and a Markdown report. |
+| Sentence linter (warnings only) | `res.check("...")` flags possible misreadings in an English sentence, with the exact words, a rule id and what to check. Numbers are read by role (estimate, interval, standard error, threshold) and sign, intervals as ordered pairs; a number whose role is unclear is flagged, not passed. It never approves a sentence and lists the text it did not check. Checked sentences are kept in the report. |
+| Level-conflict detection | Under the TOSTER-style policy, flags when equivalence rests on the 90% interval while the 95% interval reaches outside the bounds. |
+| Input checks | Adapters check the original statistic and p-value, with limitations for extremely small p-values; see known issues. |
 | Design sensitivity | Power, Type S and exaggeration ratio under assumed effects, with the source of each assumption required. |
-| Scope on every claim | Generalising beyond the declared scope is blocked. |
+| Scope | The linter can warn about some generalizations; it does not verify the stated scope or catch every overgeneralization. |
 | Absolute and relative | With a `baseline`, both changes are reported side by side. |
 | Common inputs | scipy t-test results, statsmodels fits, estimate + SE, a published interval, or paired item scores (e.g. two models on the same test questions, with cluster-robust SE). |
 
 ## Install
 
 ```bash
-pip install git+https://github.com/Haifawaeedd/statwarrant
+pip install "git+https://github.com/Haifawaeedd/statwarrant@v0.4.1"
 ```
 
-Requires Python 3.9+, NumPy and SciPy 1.11+. A PyPI release (`pip install statwarrant`) will follow.
+Pin the version you used, so your analysis can be reproduced. Requires Python 3.9+,
+NumPy and SciPy 1.11+. If the repository is private, Git must be authenticated with
+an account that has access.
 
 ## Usage
 
@@ -87,40 +120,95 @@ Requires Python 3.9+, NumPy and SciPy 1.11+. A PyPI release (`pip install statwa
 ```python
 from scipy import stats
 res = plan.analyze(stats.ttest_ind(group_a, group_b))      # two-sided t-tests
+res = plan.analyze(stats.ttest_1samp(scores, 100))         # effect = mean - 100
 
 import statsmodels.formula.api as smf
 fit = smf.ols("score ~ method + age", data=df).fit()
 res = plan.analyze(fit, term="method[T.new]")
 ```
 
+statwarrant uses the degrees of freedom statsmodels itself uses for inference
+(`df_resid_inference`, e.g. G - 1 with cluster-robust errors). Adapters compare
+the reported statistic and p-value to recomputed values and generally raise
+`AdapterMismatch` for discrepancies. Extremely small p-values have a known
+verification limitation; see [KNOWN_ISSUES.md](KNOWN_ISSUES.md).
+
 ### From a published interval
 
 ```python
 res = plan.analyze(ci=(1.0, 7.4), df=58)
+res = plan.analyze(estimate=4.2, ci=(1.0, 7.4), df=58)     # estimate is checked against the midpoint
 ```
 
-For ratios (odds, risk, hazard), give the estimate and interval on the log scale.
+Intervals must be symmetric (estimate ± critical value × SE). An asymmetric interval
+is refused instead of being silently symmetrised. Endpoints alone cannot prove that
+the original interval was symmetric: give `estimate=` too when you have it, so the
+check can run. An interval far from zero relative to its width (say 10^14 ± 0.3) is
+refused, because its width cannot be recovered accurately; give `estimate=` and `se=`. For ratios (odds, risk, hazard),
+give the estimate and interval on the log scale; for bootstrap or other asymmetric
+intervals, give `estimate=` and `se=`.
 
 ### Comparing two models on the same test items
 
 ```python
 plan = sw.declare(sesoi=0.01, sesoi_source="smallest accuracy gain worth switching models",
-                  units="accuracy", scope="MMLU test split, 5 seeds")
+                  units="accuracy", scope="MMLU test split, one run per model")
 res = plan.analyze_paired(correct_a, correct_b, cluster=passage_ids)
 ```
+
+The uncertainty is over test items, for these two fixed models. It says nothing about
+variation across training runs or seeds.
+
+### Every threshold at once
+
+```python
+th = res.thresholds
+th.met_below           # 0.99725...: an effect beyond ±d is established for every d below this
+th.equivalence_above   # 7.40275...: equivalence within ±d is established for every d above this
+th.decision(8)         # 'equivalent'
+```
+
+Both cut-offs are strict. In printed reports they are rounded in the safe direction
+(0.9972 down, 7.403 up), so "every d below 0.9972" is literally true.
+
+Both decisions are read from intervals, so these two numbers settle every symmetric
+threshold. This is a re-reading of the same interval, not a set of new tests, and it is
+there so readers with other thresholds can see their answer, not so that a threshold can
+be chosen after seeing the data. The report keeps your declared threshold as the
+primary one.
 
 ### Interval policy
 
 ```python
 sw.declare(..., interval_policy="single")    # default: every decision from one 95% interval
-sw.declare(..., interval_policy="standard")  # zero test at 95%, TOST / MET at 90%, as in TOSTER
+sw.declare(..., interval_policy="standard")  # equivalence (TOST) from the 90% interval, as in TOSTER
 ```
 
-The standard levels can contradict each other. With an estimate of 1.9, SE 1.0 and a
-SESOI of 0.1, the 95% interval [-0.06, 3.86] does not exclude zero (p = 0.057), while the
-90% interval [0.26, 3.54] lies above 0.1 (p = 0.036). Under `"standard"`, statwarrant
-reports this conflict; under `"single"` it cannot arise. The price of `"single"` is
-slightly less power for equivalence and minimal-effect tests (each side at 2.5%).
+The policy only changes the equivalence test. The minimal-effect test ("the effect
+exceeds the SESOI") can succeed in either direction, so it always splits alpha over the
+two directions (2.5% each) and reads the 95% interval; this keeps its type I error at
+or below 5%. (Version 0.1.0 ran it at 5% per side under `"standard"`, which could
+reach almost 10%.)
+
+The two levels of `"standard"` can contradict each other. With an estimate of 0.10,
+SE 0.058 and a SESOI of 0.2, the 90% interval [0.005, 0.195] lies inside the bounds, so
+TOST declares equivalence, while the 95% interval [-0.014, 0.214] reaches past 0.2.
+Under `"standard"`, statwarrant reports this conflict; under `"single"` it cannot arise.
+The price of `"single"` is slightly less power for equivalence.
+
+### Declaring before analysis
+
+`declare()` records a timestamp, but that is only your computer's clock and proves
+nothing. To make the plan verifiable, register its fingerprint (or `plan.to_dict()`)
+somewhere a third party timestamps it (OSF, AsPredicted, a public commit) before you
+see the result. statwarrant never verifies a registration: the report always says that
+the timing is unverified and that the registration reference is your own text.
+
+```python
+plan.fingerprint     # SHA-256 of the plan's content; the same plan always gives the same value
+sw.declare(..., registration="https://osf.io/...")   # where you registered it (not part of the fingerprint)
+plan.fingerprint_for(1)   # the 0.2.0 format, for plans registered with that release
+```
 
 ### Design sensitivity
 
@@ -133,33 +221,55 @@ statement about the observed estimate, and should not be used to "correct" it.
 
 ### Output
 
-`res.to_markdown()`, `res.to_json()` and `res.to_dict()` give the full record: plan,
-input, tests, claims and notes.
+`res.to_markdown()`, `res.to_json()` and `res.to_dict()` give a report: what was
+compared (your description), your declared plan, the tests, every threshold at once,
+the claims, the sentences you checked with their warnings, input information, and
+what statwarrant does not verify. For model objects and paired inputs, the recorded
+inputs are summaries, not the original objects or raw data. The JSON carries a schema
+version (`statwarrant-result/2`). Name a result with `analyze(..., label="H1")`.
+Extreme finite inputs can overflow and prevent JSON export; see known issues.
 
 ## What it does not do
 
 * It does not check that your data or model are right; it interprets the estimate it is given.
 * It cannot show an effect is exactly zero; only that it is smaller than your SESOI.
-* The sentence checker is pattern-based and English-only in 0.1. It returns
-  `unrecognized` rather than guessing.
-* Version 0.1 handles one effect at a time; multiple comparisons are not adjusted.
+* It does not verify your descriptions (outcome, contrast, scope), causal claims, or
+  generalisation beyond the data; every report lists these.
+* The sentence linter is pattern-based, English-only and warnings-only. No warning is
+  not a clearance: it checks only the words it recognises and lists the rest.
+* The linter's accuracy has not been measured on sentences annotated by independent
+  researchers; until it is, treat it as an experimental aid. The test corpus in
+  `tests/test_sentences.py` was annotated by the maintainers and guards against
+  regressions only. Sentences it handles wrongly are the most useful feedback you can give.
+* It handles one effect at a time; multiple comparisons are not adjusted.
+* `res.check()` stores each sentence in the report by default. Remove them before sharing a
+  report with confidential text, or use `res.check(sentence, record=False)`. To remove all
+  previously stored checks from future reports, use `res.checked.clear()`; this does not
+  delete previously exported reports or returned check objects. Review all other fields too.
+* Paired comparisons with cluster labels refuse missing labels; drop or label those items first.
 
 ## Related tools
 
 statwarrant builds on the same methods as these tools and is checked against some of them.
 
-* [TOSTER](https://cran.r-project.org/package=TOSTER) (R): equivalence and minimal-effect tests with plain-language descriptions. The closest relative.
+* [TOSTER](https://cran.r-project.org/package=TOSTER) (R): a much fuller toolkit for equivalence and minimal-effect testing (many designs, effect-size options, plots), with plain-language descriptions of results. If you work in R, start there. statwarrant covers far fewer designs; what it adds is a claim contract and a sentence checker, in Python.
 * [statsmodels](https://www.statsmodels.org/) (Python): TOST functions; used as a reference in our tests.
 * [baycomp](https://baycomp.readthedocs.io/) and [autorank](https://github.com/sherbold/autorank) (Python): Bayesian comparison of models with a region of practical equivalence.
 * [retrodesign](https://cran.r-project.org/package=retrodesign) (R): Type S and Type M errors.
-* [metacheck](https://scienceverse.github.io/metacheck) (R): automated checks of research papers.
+* [metacheck](https://scienceverse.github.io/metacheck) (R): automated checks of research papers, including matching reported numbers to analyses.
+* [statcheck](https://michelenuijten.shinyapps.io/statcheck-web/) (R): extracts reported test statistics from papers and recomputes their p-values.
+
+None of statwarrant's ingredients is new. What it tries to add is their combination in
+one Python workflow: a declared threshold, the tests, every threshold at once, a claim
+contract and a record of the sentences checked. We have not surveyed every tool, so we
+do not claim it is the first or only one.
 
 ## Feedback
 
 This is an early release and your opinion shapes it.
 
 * **Tell us how it went:** [open a feedback form](https://github.com/Haifawaeedd/statwarrant/issues/new?template=feedback.yml)
-* **Found a sentence judged wrongly?** That is the most useful report we can get. Use the same form.
+* **Found a sentence the linter handles wrongly** (a false warning, or a misreading it missed)? That is the most useful report we can get. Use the same form.
 * **Questions and ideas:** [Discussions](https://github.com/Haifawaeedd/statwarrant/discussions)
 
 Feedback here is public and used to improve the software.

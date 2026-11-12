@@ -59,8 +59,8 @@ body:
   - type: textarea
     id: misjudged
     attributes:
-      label: A sentence that was judged wrongly (if any)
-      description: Paste the sentence, the verdict you got, and the verdict you expected. These reports are the most useful.
+      label: A sentence the linter handled wrongly (if any)
+      description: Paste the sentence, the warnings you got, and what you expected (a false warning, or a misreading it missed). These reports are the most useful.
       render: text
   - type: textarea
     id: missing
