@@ -69,19 +69,19 @@ print(res.check("The new method improved scores by about 4 points and is safe fo
 ```
 
 ```text
-[3 warnings] The new method improved scores by about 4 points and is safe for all students.
-  - check    direction              "improved": The direction's relationship to the
-    declared contrast, compared groups or time points and their order could not be
-    verified. Check the wording and contrast by hand.
-    Check: Verify the compared groups or time points, their order and the declared contrast by hand.
-  - check    magnitude              "by about 4 … points": Not checked against the result:
-    this size depends on which way the comparison runs, and the wording could not be tied
-    to the declared contrast (new method minus existing method). Check it by hand.
-    Check: Check the intended quantity, unit and any conversion by hand.
-  - conflict generalization         "for all": An average effect does not show that every
-    individual or case is affected, and the evidence comes from 'first-year students,
-    one university, one term' only.
+[1 conflict, 2 to verify] The new method improved scores by about 4 points and is safe for all students.
+  Conflicts with the result:
+  - generalization         "for all": An average effect does not show that every individual or
+    case is affected, and the evidence comes from 'first-year students, one university, one
+    term' only.
     Check: Limit the claim to the declared scope and to the average effect.
+  Not verified (statwarrant could not check these; review them by hand):
+  - direction              "improved": The direction's relationship to the declared contrast,
+    compared groups or time points and their order could not be verified. Check the wording
+    and contrast by hand.
+  - magnitude              "by about 4 … points": Not checked against the result: this size
+    depends on which way the comparison runs, and the wording could not be tied to the
+    declared contrast (new method minus existing method). Check it by hand.
   Not checked: "The new method", "scores", "and is safe", "students".
   Unit checking is pattern-based and partial: a limited set of simple units adjacent to a
   recognised effect or estimate are compared. Other units and conversions may be unchecked;
@@ -89,8 +89,9 @@ print(res.check("The new method improved scores by about 4 points and is safe fo
   A warning is a prompt for review, not proof that the sentence is false.
 ```
 
-The checker only warns; it never approves a sentence. "Is safe" was not checked, and
-the output says so.
+The checker only warns; it never approves a sentence. A **conflict** contradicts the
+result. **Not verified** lists parts it recognised but could not check, for you to review.
+"Is safe" was not checked at all, and the output says so.
 
 ## Why
 
@@ -187,15 +188,31 @@ verification limitation; see [KNOWN_ISSUES.md](KNOWN_ISSUES.md).
 ```python
 res = plan.analyze(ci=(1.0, 7.4), df=58)
 res = plan.analyze(estimate=4.2, ci=(1.0, 7.4), df=58)     # estimate is checked against the midpoint
+
+# a published odds, risk, rate or hazard ratio, as printed (analysed on the log scale)
+res = sw.declare(units="log hazard ratio").analyze(estimate=0.83, ci=(0.75, 0.93), ratio=True)
 ```
 
 Intervals must be symmetric (estimate ± critical value × SE). An asymmetric interval
 is refused instead of being silently symmetrised. Endpoints alone cannot prove that
 the original interval was symmetric: give `estimate=` too when you have it, so the
 check can run. An interval far from zero relative to its width (say 10^14 ± 0.3) is
-refused, because its width cannot be recovered accurately; give `estimate=` and `se=`. For ratios (odds, risk, hazard),
-give the estimate and interval on the log scale; for bootstrap or other asymmetric
-intervals, give `estimate=` and `se=`.
+refused, because its width cannot be recovered accurately; give `estimate=` and `se=`. For ratios (odds, risk, rate, hazard), pass the printed
+numbers with `ratio=True`, or give log-scale numbers; the symmetry check allows for the
+rounding of the printed digits. For bootstrap or other asymmetric intervals, give
+`estimate=` and `se=`.
+
+### Describing the study
+
+```python
+sw.declare(..., design="randomised")      # or "observational"; used to judge causal wording
+sw.declare(..., subgroup="patients on mechanical ventilation")   # the result is a subgroup result
+```
+
+Both are your own description, reported and never verified. With `design="randomised"`,
+causal wording about an established average effect is not flagged; with
+`"observational"` it is a conflict. With `subgroup`, a sentence naming that subgroup is
+not flagged as a subgroup claim.
 
 ### Comparing two models on the same test items
 

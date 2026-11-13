@@ -26,6 +26,14 @@ external review. No public release or tag is implied.
   both orders; "as high as" / "as low as" use the matching interval end and sign;
   unrecognised ratio wording no longer raises. The release workflow can only be started
   by the owner with a typed confirmation; the notebook installs this branch.
+* After checking sentences from six published studies: the printed result lists
+  conflicts first and parts that could not be verified separately
+  (`[1 conflict, 2 to verify]`), with `.conflicts` and `.to_verify`; `declare()` takes
+  `design=` and `subgroup=`; `analyze(..., ratio=True)` takes a published ratio and its
+  interval as printed, and the symmetry check allows for rounding; counts, time points
+  and group shares are listed as not checked; "does not prove" is a caution; outcome
+  names such as "cause-specific mortality" and study sizes such as "a large study" are
+  no longer read as claims.
 * Public-trial files: Colab quick-start notebook, an issue form for sentences the
   checker gets wrong, CI on macOS and Windows, a manually started and approved release
   workflow (TestPyPI or PyPI), `SECURITY.md`, `CODE_OF_CONDUCT.md`, and an AI-use

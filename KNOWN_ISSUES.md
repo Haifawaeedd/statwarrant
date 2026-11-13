@@ -40,6 +40,33 @@ settings: configure the `pypi` environment's required reviewers before any trust
 publisher. The quick-start notebook now installs this branch (`integrate/0.5.0`) and prints
 the installed commit.
 
+## Sentences from published papers
+
+41 excerpts from six published studies (five randomised trials and one cohort; 33 from
+the papers, 8 from news and summaries) were linked by hand to the 19 results they
+describe and labelled before any check. The labeller is an AI, 15 excerpts are clauses
+(the retrieval tool limited quotes to 125 characters), and 32 of the 41 are correct
+wording, so this mainly measures noise on real text.
+
+* **Before the 0.5.0 fixes** (commit 248714d, contrast declared): 27 of 32 correct
+  excerpts got a warning, one a false `conflict` ("does not prove cause and effect"), and
+  5 of 18 published estimates could not be entered with their rounded interval.
+* **After** (design, subgroup and ratio inputs, counts skipped, cautions read, separate
+  display): no correct excerpt gets a `conflict`, all 18 estimates are accepted, and the
+  parts to verify on correct excerpts fell from 50 to 33. These fixes were made after
+  seeing the excerpts, so the improvement is optimistic.
+* **What remains.** 25 of 32 correct excerpts still have parts to verify, mostly
+  direction words (18) that cannot be tied to the declared contrast; declaring group
+  names is not supported yet. Of the 4 problem excerpts, one gets a `conflict` (an
+  importance claim without a threshold), two only parts to verify, and one is not
+  recognised ("but not among those receiving no respiratory support"). "The trial did
+  not show a difference" is not recognised. Causal claims in other words ("may extend
+  your life") are not recognised.
+* **p-values from rounded intervals.** Recomputed from the printed interval, 3 of 7
+  published two-sided p-values differ at their printed precision (for example 0.727
+  against 0.69). statwarrant does not compare a sentence's p-value with tolerance for
+  this rounding; treat such differences as rounding unless they are large.
+
 ## Third user trial (new data, sentences frozen before checking)
 
 Three real datasets (RAND Health Insurance Experiment, credit-card expenditure, two
