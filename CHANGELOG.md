@@ -35,6 +35,10 @@ published studies. The sentence checker remains experimental (see KNOWN_ISSUES.m
   and group shares are listed as not checked; "does not prove" is a caution; outcome
   names such as "cause-specific mortality" and study sizes such as "a large study" are
   no longer read as claims.
+* Before release: printed output fits Windows code pages (an "approximately equal" sign
+  broke printing to a redirected Windows console); the rounding allowance assumes one
+  printed precision; a note says when the midpoint replaces a given estimate; design
+  aliases (RCT, cohort, ...); `VALIDATION.md` and `examples/published_results.py`.
 * Public-trial files: Colab quick-start notebook, an issue form for sentences the
   checker gets wrong, CI on macOS and Windows, a manually started and approved release
   workflow (TestPyPI or PyPI), `SECURITY.md`, `CODE_OF_CONDUCT.md`, and an AI-use
