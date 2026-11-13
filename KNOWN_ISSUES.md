@@ -1,10 +1,10 @@
-# Known issues in the 0.5.0.dev0 experimental alpha
+# Known issues in statwarrant 0.5.0 (experimental alpha)
 
 These are known, unresolved issues. The examples are targeted checks, not estimates
 of how often errors occur. Use statwarrant as an aid, not an automated validator;
 independently check calculations and the full text of research claims.
 
-## 0.5.0.dev0 follow-up review — changed on this branch, not yet re-reviewed
+## Review of the 0.5.0 development branch — changed, not yet re-reviewed
 
 An independent review reproduced the failures below on commit `fff60a1`. Changes addressing
 each have regression tests in `tests/test_review_050.py`; they have not been reviewed again.
@@ -37,8 +37,8 @@ The release workflow runs only when the repository owner starts it by hand and t
 confirmation, and PyPI uploads must run from a version tag. Naming a GitHub environment
 still does not require approval by itself, and the workflow cannot check the environment's
 settings: configure the `pypi` environment's required reviewers before any trusted
-publisher. The quick-start notebook now installs this branch (`integrate/0.5.0`) and prints
-the installed commit.
+publisher. The quick-start notebook installs the released version and prints the
+installed commit.
 
 ## Sentences from published papers
 

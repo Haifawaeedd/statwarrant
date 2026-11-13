@@ -54,4 +54,4 @@ body:
     id: version
     attributes:
       label: statwarrant version
-      placeholder: "0.5.0.dev0 (python -c \"import statwarrant; print(statwarrant.__version__)\")"
+      placeholder: "0.5.0 (python -c \"import statwarrant; print(statwarrant.__version__)\")"

@@ -15,25 +15,14 @@ importance, and it can flag common misreadings in a sentence you are about to wr
 > and the sentence linter's accuracy has not been measured. Use it as an aid to careful
 > reporting, not as a validator, and check its output. Reports of wrong results are very welcome.
 
-> **0.5.0.dev0 integration branch — not a release.** This branch combines the
-> comparison-safety work with fixes made after the third user trial and its review
-> (design-table export, "neither ... nor ... was established", clearer warning messages,
-> ratio and interval-end wording) and the files for a public trial. The linter remains
-> pattern-based and partial and has not been validated on a human-annotated independent
-> test set. Always check group order, outcome, contrast and the complete sentence
-> independently. See [KNOWN_ISSUES.md](KNOWN_ISSUES.md).
->
-> **Review findings changed, not yet re-reviewed:** an independent review found that new
-> sentence rules could hide other claims, confuse odds and risk, misread comparison order
-> or interval ends, or raise an exception. Those cases are changed and tested, but the
-> changes have not been reviewed again. Do not rely on the sentence checker for research
-> decisions. See [KNOWN_ISSUES.md](KNOWN_ISSUES.md).
->
-> This is an unreleased development snapshot, not a tag or a PyPI release. Keep it on a
-> review branch until those findings have been addressed; pin the commit for reproducibility.
+> **0.5.0 — public trial.** Please try it on your own results and tell us where it is
+> wrong. The sentence checker is pattern-based and partial: a **conflict** contradicts the
+> result; **not verified** lists parts it could not check, for you to review; no warning
+> is never an approval. Always check group order, outcome, contrast and the complete
+> sentence yourself. See [KNOWN_ISSUES.md](KNOWN_ISSUES.md).
 
-**Try it** in the [quick-start notebook on Colab](https://colab.research.google.com/github/Haifawaeedd/statwarrant/blob/integrate/0.5.0/examples/quickstart.ipynb)
-(nothing to install; it installs this branch and prints the commit). **Found a sentence the checker judged wrongly?**
+**Try it** in the [quick-start notebook on Colab](https://colab.research.google.com/github/Haifawaeedd/statwarrant/blob/main/examples/quickstart.ipynb)
+(nothing to install). **Found a sentence the checker judged wrongly?**
 [Report it](https://github.com/Haifawaeedd/statwarrant/issues/new?template=linter.yml); this is
 the most useful feedback. Reports are public: do not paste confidential or unpublished text.
 
@@ -126,14 +115,13 @@ result. **Not verified** lists parts it recognised but could not check, for you 
 ## Install
 
 ```bash
-python -m pip install numpy scipy
-python -m pip install --force-reinstall --no-deps "git+https://github.com/Haifawaeedd/statwarrant@integrate/0.5.0"
+pip install "git+https://github.com/Haifawaeedd/statwarrant@v0.5.0"
 ```
 
-Pin the Git commit you used, so your analysis can be reproduced. statwarrant is not yet
-on PyPI. Requires Python 3.9+,
-NumPy and SciPy 1.11+. `--force-reinstall` prevents a previously installed development
-snapshot from being reused silently; install the dependencies first.
+Pin the version you used (the `v0.5.0` tag), so your analysis can be reproduced.
+Requires Python 3.9+, NumPy 1.22+ and SciPy 1.11+. If an earlier development snapshot is
+installed, add `--force-reinstall` so it is not reused silently. statwarrant is not yet on
+PyPI.
 
 ## Real-data regression example
 

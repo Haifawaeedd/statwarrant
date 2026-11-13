@@ -1,9 +1,10 @@
 # Changelog
 
-## 0.5.0.dev0 (unreleased integration branch)
+## 0.5.0
 
-Built on the comparison-safety branch (commit 8ad4164) after the third user trial and its
-external review. No public release or tag is implied.
+First public trial release. Built on the comparison-safety branch (commit 8ad4164)
+after the third user trial, two external reviews and a check on sentences from six
+published studies. The sentence checker remains experimental (see KNOWN_ISSUES.md).
 
 * Design sensitivity is computed in units of the standard error; an exaggeration ratio
   that cannot be represented is refused with a message, instead of a report whose JSON
