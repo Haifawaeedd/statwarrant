@@ -427,6 +427,8 @@ _WORD_PATTERNS = [
                        r"respondent|case|school|class|model|task|dataset|setting)|"
                        r"generali[sz](?:e|es|ed|able|ation)|in every|across (?:all|the board)|regardless of|"
                        r"any (?:student|user|patient|person|participant|setting|context|population))\b"),
+    # "cause-specific mortality", "all-cause death", "causes of death" name outcomes, not causation
+    ("_skip", r"\b(?:all[- ])?causes?[- ]specific\b|\ball[- ]cause\b|\bcauses? of (?:death|mortality|admission)\b"),
     ("causal", r"\b(?:caus(?:e|es|ed|ing|al|ally)|led to|leads to|lead to|due to|because of|result(?:s|ed)? in|"
                r"attributable to|driven by|responsible for)\b"),
     ("nonzero", r"\b(?:differs?|differed|different) from zero\b|\bnon-?zero\b|\bdetectable\b"),
@@ -436,6 +438,10 @@ _WORD_PATTERNS = [
                    r"appreciabl[ey]|matters?)\b|"
                    r"\b(?:larger|greater|bigger|more)\s+(?:in magnitude\s+)?than\s+" + _SESOI + r"|"
                    r"\b(?:exceeds?|exceeded|exceeding|beyond|above|surpass(?:es|ed)?|reach(?:es|ed)?)\s+" + _SESOI),
+    # "a large prospective study", "a large sample": the size of the study, not of the effect
+    ("_skip", r"\b(?:large|big|huge|massive|small)\s+(?:(?:prospective|retrospective|randomi[sz]ed|multicent(?:er|re)|"
+              r"population-based|national|observational|cohort|clinical|controlled)\s+){0,2}"
+              r"(?:study|studies|trial|trials|cohort|cohorts|sample|samples|dataset|population|survey|registry)\b"),
     ("big", r"\b" + _BIG + r"\b"),
     ("significance", r"\b(?:statistically |highly |very )?significant(?:ly)?\b|\breached significance\b"),
     ("vague_result", r"\b(?:positive|negative|null) (?:results?|findings?|outcomes?|stud(?:y|ies)|trials?)\b"),

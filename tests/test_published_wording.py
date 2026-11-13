@@ -122,3 +122,21 @@ def test_ratio_input_still_refuses_a_truly_asymmetric_interval():
 def test_ratio_input_must_be_positive(ci):
     with pytest.raises(ValueError, match="positive"):
         sw.declare().analyze(ci=ci, ratio=True)
+
+
+# ---- words that name outcomes or study size --------------------------------------------
+
+@pytest.mark.parametrize("sentence", [
+    "Coffee consumption was inversely associated with total and cause-specific mortality.",
+    "All-cause mortality was lower among coffee drinkers.",
+])
+def test_cause_in_an_outcome_name_is_not_causal_wording(sentence):
+    res = sw.declare(design="observational", units="log hazard ratio").analyze(estimate=0.90, ci=(0.85, 0.96), ratio=True)
+    assert "causal" not in [p.rule for p in res.check(sentence, record=False).parts]
+
+
+def test_size_of_the_study_is_not_a_size_claim():
+    res = sw.declare(units="log hazard ratio").analyze(estimate=0.90, ci=(0.85, 0.96), ratio=True)
+    assert "big" not in [p.rule for p in res.check("In this large prospective study, mortality was lower.",
+                                                   record=False).parts]
+    assert "big" in [p.rule for p in res.check("The study found a large effect.", record=False).parts]
