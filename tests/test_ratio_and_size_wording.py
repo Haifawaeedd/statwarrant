@@ -32,8 +32,9 @@ def _rules(res, sentence):
 
 @pytest.mark.parametrize("sentence,status", [
     ("The odds of improvement tripled.", "check"),                       # inside the ratio interval
-    ("The odds of improvement halved.", "conflict"),                     # a factor of 0.5 is ruled out
-    ("The odds differed 10.8-fold.", "consistent"),                      # the estimate
+    ("The odds of improvement halved.", "check"),       # 0.5 is ruled out, but 2 (the other order) is not
+    ("The odds differed 10.8-fold.", "check"),          # the estimate, but the order is not verified
+    ("The odds differed 200-fold.", "conflict"),        # ruled out in both orders
 ])
 def test_ratio_claims_on_a_log_scale(sentence, status):
     rules = _rules(PSI, sentence)
@@ -55,7 +56,7 @@ def test_ratio_without_log_scale_or_baseline_is_a_check():
 
 def test_ratio_with_a_baseline_uses_the_relative_change():
     res = sw.declare(sesoi=1, sesoi_source="x", units="cases").analyze(estimate=5.0, se=1.0, baseline=5.0)
-    assert _rules(res, "The rate of cases doubled.").get("ratio") == "consistent"
+    assert _rules(res, "The rate of cases doubled.").get("ratio") == "check"
     assert _rules(res, "The rate of cases tripled.").get("ratio") == "conflict"  # +200% is outside
 
 

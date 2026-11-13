@@ -292,14 +292,28 @@ _ESTABLISHED = (r"(?:established|shown|demonstrated|found|supported|confirmed|de
                 r"reached|achieved)")
 # "Neither X nor Y was established", "the data support neither X nor Y", "neither a significant
 # difference nor equivalence": a statement that two things are NOT established, judged item by
-# item (not a claim of no effect).
+# item (not a claim of no effect). Each item is a short phrase that stops at a clause boundary
+# or conjunction, so claims after it ("... and prove the treatment caused harm") are still read.
+_NEITHER_TOKEN = r"(?:[^\s.;,:()]|\.(?=\d))+"
+_NEITHER_STOP = (r"(?:and|but|or|so|yet|while|whereas|although|because|since|which|that|thus|hence|therefore|"
+                 r"nor|neither|was|were|is|are|has|have|had|could|can|prove\w*|show\w*|caus\w*)")
+_NEITHER_ITEM = r"(?:\s+(?!" + _NEITHER_STOP + r"\b)" + _NEITHER_TOKEN + r"){1,8}?"
+_NEITHER_END = r"(?=\s*(?:[;,:()]|\.(?!\d)|$)|\s+" + _NEITHER_STOP + r"\b)"
 _NEITHER_ESTABLISHED = (
-    r"\bneither\b[^.;]*?\bnor\b[^.;]*?\b(?:was|were|is|are|has been|have been|had been|could be|can be)\s+"
-    r"(?:yet\s+)?(?:statistically\s+)?" + _ESTABLISHED + r"\b|"
+    r"\bneither" + _NEITHER_ITEM + r"\s+nor" + _NEITHER_ITEM +
+    r"\s+(?:was|were|is|are|has been|have been|had been|could be|can be)\s+(?:yet\s+)?(?:statistically\s+)?"
+    + _ESTABLISHED + r"\b|"
     r"\b(?:supports?|supported|shows?|showed|establish(?:es|ed)?|demonstrat(?:es|ed)|indicat(?:es|ed)|"
-    r"suggest(?:s|ed)|reveal(?:s|ed)|finds?|found|provides? (?:evidence|support) for)\s+neither\b[^.;]*?\bnor\b"
-    r"[^.;,]*|"
-    r"\bneither\s+(?:(?:a|an|the|any)\s+)?(?:statistically\s+)?significan\w*\b[^.;]*?\bnor\b[^.;,]*")
+    r"suggest(?:s|ed)|reveal(?:s|ed)|finds?|found|provides? (?:evidence|support) for)\s+neither" + _NEITHER_ITEM +
+    r"\s+nor" + _NEITHER_ITEM + _NEITHER_END + r"|"
+    r"\bneither\s+(?:(?:a|an|the|any)\s+)?(?:statistically\s+)?significan\w*(?:\s+(?!" + _NEITHER_STOP + r"\b)"
+    + _NEITHER_TOKEN + r"){0,6}?\s+nor" + _NEITHER_ITEM + _NEITHER_END)
+# Words an item may contain and still clearly refer to the tested result.
+_NEITHER_VOCAB = set("""a an the any statistically significant significantly reliable clear real true difference
+differences different effect effects from zero nonzero non-zero equivalence equivalent increase decrease positive
+negative improvement benefit harm association relationship change impact smallest size of interest sesoi
+practically practical important meaningful relevant larger greater bigger than beyond exceeding above between
+groups conditions arms two in on for across among with""".split())
 _NEITHER_ESTABLISHED_RE = re.compile(_NEITHER_ESTABLISHED)
 # "doubled", "halved", "three times": a claim about a ratio
 _RATIO_WORDS = {"doubl": 2.0, "twice": 2.0, "two-fold": 2.0, "twofold": 2.0, "two times": 2.0, "tripl": 3.0,
@@ -731,7 +745,8 @@ def _scan(sentence: str, ctx: Context):
                 named, elsewhere = _named_test(original, m.start(), m.end())
                 hits.append(_Hit(name, m.group(0).strip(), m.start(), m.end(),
                                  {"groups": list(m.groups()), "context": context, "named": named,
-                                  "named_elsewhere": elsewhere}))
+                                  "named_elsewhere": elsewhere,
+                                  "clause": _bounded(original, m.start(), m.end(), _SEGMENT)}))
             blank(m.start(), m.end())
     if ctx.units:
         unit = re.escape(ctx.units.lower().strip().rstrip("s"))
@@ -761,12 +776,13 @@ def _scan(sentence: str, ctx: Context):
 
     for name, pat in _COMPILED:
         for m in list(pat.finditer(text)):
-            if name == "ratio" and not _RATIO_OBJECT.search(_bounded(original, m.start(), m.end(), _SEGMENT)):
+            clause = _bounded(original, m.start(), m.end(), _SEGMENT)
+            if name == "ratio" and not _RATIO_OBJECT.search(clause):
                 continue  # "halved dropout": a ratio about something else; left unchecked
             if name != "_skip":
                 named, elsewhere = _named_test(original, m.start(), m.end())
                 hits.append(_Hit(name, m.group(0).strip(), m.start(), m.end(),
-                                 {"before": original[max(0, m.start() - 40):m.start()], "named": named,
+                                 {"before": original[max(0, m.start() - 40):m.start()], "named": named, "clause": clause,
                                   "named_elsewhere": elsewhere, "orig": _span(sentence, idx, m.start(), m.end())[0],
                                   "in_outcome": any(a <= m.start() and m.end() <= b for a, b in outcome_spans)}))
             blank(m.start(), m.end())
@@ -1071,60 +1087,90 @@ def _judge_hit(h: _Hit, ctx: Context, sign: Optional[int]) -> Tuple[str, str]:
         return _judge_neither(h, ctx)
 
     if cat == "ratio":
-        return _judge_factor(_ratio_factor(h.phrase), h.phrase, ctx)
+        return _judge_factor(_ratio_factor(h.phrase), h.phrase, ctx, h.data.get("clause", ""))
 
     raise KeyError(cat)
 
 
-def _ratio_factor(phrase: str) -> float:
+def _ratio_factor(phrase: str) -> Optional[float]:
+    norm = re.sub(r"[\s-]+", "", phrase.lower())
     for key in sorted(_RATIO_WORDS, key=len, reverse=True):
-        if key in phrase:
+        if re.sub(r"[\s-]+", "", key) in norm:
             return _RATIO_WORDS[key]
-    raise KeyError(phrase)
+    return None
+
+
+_RATIO_QUANTITY = (("odds", r"\bodds\b"), ("hazard", r"\bhazards?\b"),
+                   ("rate", r"\b(?:rates?|incidence)\b"),
+                   ("risk", r"\b(?:risks?|probabilit(?:y|ies)|chances?|likelihood)\b"))
+
+
+def _ratio_scale(units: str) -> Optional[str]:
+    """The ratio quantity a log-scale result measures, from its declared units."""
+    u = units.lower()
+    if not re.search(r"\blog\b|\blog[- ]|logit|\bln\b", u):
+        return None
+    for name, pat in _RATIO_QUANTITY:
+        if re.search(pat, u) or (name == "odds" and "logit" in u):
+            return name
+    return "unknown"
 
 
 def _exp(x: float) -> float:
     return math.exp(x) if x < 700 else math.inf
 
 
-def _judge_factor(f: float, written: str, ctx: Context) -> Tuple[str, str]:
-    """A ratio claim ("doubled", "a 3-fold increase") against a result on a log scale, or
-    against the relative change when a baseline is declared."""
+def _judge_factor(f: Optional[float], written: str, ctx: Context, clause: str = "") -> Tuple[str, str]:
+    """A ratio claim ("doubled the odds", "a 3-fold increase in the rate").
+
+    Judged only on a log scale whose quantity (odds, risk, rate, hazard) matches the one the
+    sentence names, or against the relative change when a baseline is declared. Which group
+    is the numerator is not verified, so the claim is never marked consistent, and a conflict
+    needs the factor to be ruled out in both orders.
+    """
     ev = ctx.evidence
     lo, hi = ev.zero_interval
     level = level_text(ev.zero_level)
-    units = (ctx.units or "").lower()
-    if f <= 0:
-        return CHECK, f"'{written}' does not state a usable ratio."
-    if re.search(r"\blog\b|\blog[- ]|logit", units):
+    clause = clause.lower()
+    if f is None or not f > 0:
+        return CHECK, f"'{written}' was read as a ratio, but statwarrant could not tell which factor it states."
+    if re.search(r"\b(?:not|no|never|without|neither|nor)\b|n't\b", clause):
+        return CHECK, f"'{written}' is negated or qualified; statwarrant does not check negated ratio claims."
+    named = [name for name, pat in _RATIO_QUANTITY if re.search(pat, clause)]
+    scale = _ratio_scale(ctx.units or "")
+    order = "statwarrant does not verify which group is the numerator, so check the order by hand"
+    if scale is not None:
+        if scale == "unknown" or not named or named[0] != scale:
+            what = named[0] if named else "an unnamed quantity"
+            on = f"a log {scale}" if scale != "unknown" else "a log scale of unknown quantity"
+            return CHECK, (f"'{written}' states a ratio of {what}, but the result is on {on} ({ctx.units}); "
+                           f"odds, risk, rate and hazard ratios differ, so this was not checked.")
         lf, est_f, lo_f, hi_f = math.log(f), _exp(ev.estimate), _exp(lo), _exp(hi)
-        scale = (f"on the ratio scale the estimate is a factor of {fmt(est_f)} ({level} CI {fmt(lo_f)} to "
-                 f"{fmt(hi_f)})")
-        if not lo <= lf <= hi:
-            return CONFLICT, f"A factor of {fmt(f)} is not compatible with the data: {scale}."
+        text = (f"on the {scale}-ratio scale the estimate is a factor of {fmt(est_f)} ({level} CI {fmt(lo_f)} to "
+                f"{fmt(hi_f)})")
+        if not lo <= lf <= hi and not lo <= -lf <= hi:
+            return CONFLICT, f"A factor of {fmt(f)} is not compatible with the data in either order: {text}."
         if abs(lf - ev.estimate) <= math.log(1.05):
-            return CONSISTENT, f"Matches the estimate: {scale}. Report the interval too."
-        return CHECK, (f"A factor of {fmt(f)} is compatible with the data but is not the estimate: {scale}. Report "
-                       f"the estimate and interval instead of a single factor.")
-    if ctx.baseline:
+            return CHECK, f"A factor of {fmt(f)} matches the estimate ({text}), but {order}."
+        return CHECK, (f"A factor of {fmt(f)} is not the estimate: {text}; {order}. Report the estimate and "
+                       f"interval instead of a single factor.")
+    if ctx.baseline and named and named[0] in ("rate", "risk"):
         b = ctx.baseline
         rel = ev.estimate / b
         rlo, rhi = sorted((lo / b, hi / b))
-        scale = (f"the relative change is {rel:+.1%} of the baseline ({level} CI {rlo:+.1%} to {rhi:+.1%}), "
-                 f"a factor of {fmt(1 + rel)}")
-        if not rlo <= f - 1 <= rhi:
-            return CONFLICT, f"A factor of {fmt(f)} is not compatible with the data: {scale}."
-        if abs((f - 1) - rel) <= 0.05 * f:
-            return CONSISTENT, f"Matches the estimate: {scale}. Report the interval too."
-        return CHECK, f"A factor of {fmt(f)} is compatible with the data but is not the estimate: {scale}."
-    return CHECK, (f"'{written}' states a ratio (a factor of {fmt(f)}), but the result is a difference on the "
-                   f"{ctx.units or 'analysis'} scale. statwarrant checks ratios only for log-scale units or with a "
-                   f"declared baseline; report the estimate and interval.")
+        text = (f"the relative change is {rel:+.1%} of the baseline ({level} CI {rlo:+.1%} to {rhi:+.1%}), "
+                f"a factor of {fmt(1 + rel)}")
+        if not rlo <= f - 1 <= rhi and not rlo <= 1 / f - 1 <= rhi:
+            return CONFLICT, f"A factor of {fmt(f)} is not compatible with the data in either order: {text}."
+        return CHECK, f"Compare the factor {fmt(f)} with the data: {text}; {order}."
+    return CHECK, (f"'{written}' states a ratio (a factor of {fmt(f)}). statwarrant checks ratios only for a "
+                   f"log-scale result whose units name the same quantity (odds, risk, rate or hazard), or a rate or "
+                   f"risk with a declared baseline; report the estimate and interval.")
 
 
 def _neither_kind(item: str, ctx: Context) -> Optional[str]:
-    if re.search(r"\b(?:larger|greater|bigger|exceed\w*|beyond|above|more than)\b", item) and re.search(r"\d", item):
-        return "threshold"  # "an effect larger than 5 units": a threshold of its own
+    if re.search(r"\d", item):
+        return "threshold"  # "equivalence within ±20 points": a threshold of its own
     if re.search(r"smallest effect size|sesoi|threshold of interest|practical(?:ly)? (?:important|relevant|"
                  r"significant)|\bmeaningful|\bimportan", item):
         return "importance"
@@ -1155,6 +1201,12 @@ def _judge_neither(h: _Hit, ctx: Context) -> Tuple[str, str]:
         if kind == "threshold":
             checks.append(f"'{item.strip(' ,')}' names its own threshold, which was not compared with the declared "
                           f"one")
+            continue
+        own = set(re.findall(r"[a-z0-9'-]+", " ".join(x for x in (ctx.outcome, ctx.units, ctx.contrast) if x).lower()))
+        extra = [w for w in re.findall(r"[a-z][a-z'-]*", item) if w not in _NEITHER_VOCAB and w not in own]
+        if extra:
+            checks.append(f"'{item.strip(' ,')}' may refer to something other than the tested result "
+                          f"('{' '.join(extra)}' is not part of the declared outcome or contrast)")
             continue
         if kind in ("equivalence", "importance") and ev.sesoi is None:
             checks.append(f"no smallest effect size of interest was declared, so '{item.strip(' ,')}' was not "
@@ -1445,34 +1497,59 @@ def _judge_number(h: _Hit, ctx: Context, sign: Optional[int], known) -> Tuple[st
         return CONFLICT, f"{s} is outside the {z}."
 
     if h.category == "fold":
-        return _judge_factor(float(g[0]), h.phrase, ctx)
+        clause = h.data.get("clause", "")
+        if not _RATIO_OBJECT.search(clause):
+            return CHECK, (f"'{h.phrase}' states a factor, but its clause does not name the quantity (odds, risk, "
+                           f"rate, hazard) that changed, so it was not compared with the result.")
+        return _judge_factor(float(g[0]), h.phrase, ctx, clause)
 
     if h.category == "plausible_value":
         word, s = g[0], g[1]
         x = float(s)
-        dirs = [-1] if x < 0 else ([sign] if sign in (1, -1) else [1, -1])
-        values = [d * abs(x) for d in dirs]
-        ends = [(f"lower end of the {z}", lo), (f"upper end of the {z}", hi)]
+        written_sign = s.strip().startswith("-")
+        ends = [("lower", lo, z), ("upper", hi, z)]
         if ev.equivalence_interval is not None and ev.equivalence_level != ev.zero_level:
             elo, ehi = ev.equivalence_interval
             e = ctx.ci_text("equivalence")
-            ends += [(f"lower end of the {e}", elo), (f"upper end of the {e}", ehi)]
-        if word in ("large", "big", "high", "great", "much"):
-            # "as large as": the far end, in the stated direction or else the larger in size
-            if x < 0 or sign in (1, -1):
-                far = -1 if x < 0 else sign
-                ends = [(n, q) for n, q in ends if (q > 0) == (far > 0)]
-            else:
-                ends = [max(ends[:2], key=lambda nq: abs(nq[1]))] + [
-                    (n, q) for n, q in ends[2:] if abs(q) == max(abs(q2) for _, q2 in ends[2:])]
-        for name, q in ends:
-            if any(_close(v, s.lstrip("-"), q) for v in values):
-                return CONSISTENT, f"Matches the {name}: effects up to there are compatible with the data."
-        if any(lo <= v <= hi for v in values):
-            return CHECK, (f"{s} is inside the {z} but is not an end of it: the data are compatible with effects "
-                           f"from {ctx.u(lo)} to {ctx.u(hi)}.")
-        return CONFLICT, (f"{s} is outside the {z}: the data are compatible with effects from {ctx.u(lo)} to "
-                          f"{ctx.u(hi)} only.")
+            ends += [("lower", elo, e), ("upper", ehi, e)]
+        span = f"the data are compatible with effects from {ctx.u(lo)} to {ctx.u(hi)}"
+        if word in ("high", "low"):
+            # signed: "as high as 2.2" is about the upper end, "as low as" about the lower end
+            v = -abs(x) if (sign == -1 and not written_sign) else x
+            side = "upper" if word == "high" else "lower"
+            for name, q, text in ends:
+                if name == side and _close(v, s.lstrip("-"), q) and (v < 0) == (q < 0):
+                    return CONSISTENT, f"Matches the {side} end of the {text}."
+            if not (lo <= v <= hi or _close(v, s.lstrip("-"), lo) or _close(v, s.lstrip("-"), hi)):
+                return CONFLICT, f"{s} is outside the {z}: {span} only."
+            return CHECK, f"{s} is not the {side} end of the {z}: {span}."
+        # magnitude: "as large as 2.2", "as small as 0.3"
+        if word in ("small", "little") and lo <= 0 <= hi:
+            return CHECK, f"The {z} includes zero, so the effect could be smaller than {s}: {span}."
+        pick = max if word not in ("small", "little") else min
+        if x < 0 or sign in (1, -1):
+            want = -1 if x < 0 else sign
+            cands = [(n, q, t) for n, q, t in ends if (q > 0) == (want > 0)]
+        else:
+            want = None
+            cands = ends
+        if cands:
+            target = pick(abs(q) for _, q, _ in cands)
+            cands = [(n, q, t) for n, q, t in cands if abs(q) == target] + \
+                    [(n, q, t) for n, q, t in cands if t != z and abs(q) == pick(abs(q2) for _, q2, t2 in cands if t2 != z)]
+        for name, q, text in cands:
+            if _close(abs(x), s.lstrip("-"), abs(q)):
+                if want is None and q < 0:
+                    return CHECK, (f"{s} matches the size of the {name} end of the {text} ({ctx.u(q)}), but the "
+                                   f"sentence does not say the effect is negative.")
+                return CONSISTENT, f"Matches the {name} end of the {text}: {span}."
+        far = max(abs(lo), abs(hi))
+        near = 0.0 if lo <= 0 <= hi else min(abs(lo), abs(hi))
+        if word not in ("small", "little") and abs(x) > far:
+            return CONFLICT, f"{s} is beyond the {z}: {span} only."
+        if word in ("small", "little") and abs(x) < near:
+            return CONFLICT, f"Effects as small as {s} are ruled out: {span}."
+        return CHECK, f"{s} is not an end of the {z}: {span}."
 
     raise KeyError(h.category)
 
