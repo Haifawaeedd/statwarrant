@@ -479,7 +479,10 @@ _NEITHER_EQUIVALENCE = re.compile(
     r"\bneither\s+(?:practical\s+)?equivalence"
     r"(?:\s+within\s+(?:plus\s+or\s+minus|±|\+/-|\+-)\s*" + _NUM + r"(?:\s+[a-z][a-z-]*){0,2})?"
     r"\s+nor\s+(?:an?\s+)?effects?\b"
-    r"(?:\s+(?:larger|greater|bigger|exceeding|beyond|above|more)\b[^.;,]*)?"
+    # a size qualifier on "an effect", up to a conjunction or verb, so later claims are still read
+    r"(?:\s+(?:larger|greater|bigger|exceeding|beyond|above|more)\b"
+    r"(?:\s+(?!(?:and|but|or|so|yet|while|whereas|although|because|since|which|that|thus|hence|therefore|was|were|"
+    r"is|are|has|have|had|could|can|prove\w*|show\w*|caus\w*)\b)(?:[^\s.;,:()]|\.(?=\d))+){0,8})?"
 )
 _NUMBER_PATTERNS = [
     # "95% probability", "95% confident": a probability statement, not a percentage change
@@ -494,6 +497,15 @@ _NUMBER_PATTERNS = [
     ("alpha_level", re.compile(r"(?:\b(?:alpha|α)\s*(?:=|of)\s*(" + _NUM + r"))|(?:(" + _NUM + r")\s*%\s*"
                                r"(?:significance\s+)?level\b)|(?:\bat\s+(?:the\s+)?(" + _NUM + r")\s+"
                                r"(?:significance\s+)?level\b)")),
+    # "the difference in p-values was 0.003", "the p-values differed": not a p-value of any test
+    ("p_difference", re.compile(r"\b(?:differences?|change|gap|contrast|comparison)\s+(?:between|in|of)\s+"
+                                r"(?:(?:the|their|two|these|both)\s+)*p\s*-?\s*values?\b"
+                                r"(?:\s*(?:<=|>=|=|<|>|\bof\b|\bwas\b|\bis\b|:)\s*" + _NUM + r")?|"
+                                r"\bp\s*-?\s*values?\s+(?:differ\w*|diverg\w*)\b|"
+                                # "p dropped from 0.04 to 0.01": a change in p, not an effect's direction
+                                r"\bp(?:\s*-?\s*values?)?\s+(?:dropped|fell|decreased|declined|rose|increased|"
+                                r"went\s+(?:up|down)|changed|moved|shrank|grew)\b"
+                                r"(?:\s+from\s+" + _NUM + r"\s+to\s+" + _NUM + r")?")),
     ("p_value", re.compile(r"\bp(?:\s*-?\s*values?)?\s*(<=|>=|=|<|>|\bof\b|\bwas\b|\bis\b|:)\s*(" + _NUM + r")")),
     ("percentage", re.compile(r"(" + _NUM + r")\s*(?:%|percent\b|per cent\b)")),
     # an ordered pair: "[1.0, 7.4]", "(1.0 to 7.4)", "from 1.0 to 7.4", "between 1.0 and 7.4", "of 1.0 to 7.4"
@@ -1600,6 +1612,11 @@ def _judge_number(h: _Hit, ctx: Context, sign: Optional[int], known) -> Tuple[st
             return CHECK, f"{s} lies inside the {z} but is not the estimate ({ctx.u(ev.estimate)})."
         return CONFLICT, f"{s} is outside the {z}."
 
+    if h.category == "p_difference":
+        return CHECK, ("A difference between p-values is not the p-value of any test and cannot be checked against "
+                       "one result. Whether two effects differ needs a test of their difference (Gelman and Stern, "
+                       "2006).")
+
     if h.category == "fold":
         clause = h.data.get("clause", "")
         if not _RATIO_OBJECT.search(clause):
@@ -1862,7 +1879,7 @@ def _exact_comparison(text: str, ctx: Context):
 
 
 _NUMBER_CATS = {"interval_level", "alpha_level", "p_value", "percentage", "magnitude", "range", "plausible_value",
-                "fold"}
+                "fold", "p_difference"}
 _FOLDED = {"importance", "big", "significance"}
 _NEGATING = {"nonsignificance", "evidence_absent", "marginal"}
 
@@ -1901,6 +1918,7 @@ _ACTION = {
     "ratio": "Report the estimate and interval; state ratios only on a ratio (log) scale or with a baseline.",
     "fold": "Report the estimate and interval; state ratios only on a ratio (log) scale or with a baseline.",
     "plausible_value": "Name the interval and its level, e.g. 'the 95% CI reaches 2.5'.",
+    "p_difference": "Compare the effects with a test of their difference, not their p-values.",
 }
 
 

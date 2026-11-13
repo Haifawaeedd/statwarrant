@@ -4,6 +4,40 @@ These are known, unresolved issues. The examples are targeted checks, not estima
 of how often errors occur. Use statwarrant as an aid, not an automated validator;
 independently check calculations and the full text of research claims.
 
+## Review of the 0.5.0 release candidate — changed, not yet re-reviewed
+
+A review of the release candidate (draft pull request #1, commit `a5269d0`) reproduced the
+four cases below while all tests passed. Changes have regression tests in
+`tests/test_review_release_050.py`; they have not been reviewed again.
+
+* **Relative change of a ratio.** `analyze(estimate=0.83, ci=(0.75, 0.93), ratio=True,
+  baseline=0.2)` reported a relative change of about -90%: the log of the ratio was divided
+  by the baseline. A baseline is now refused with a ratio or with units that name a log
+  scale (`log ...`, `logit`, `ln`), and `ratio=True` reports the ratio and its relative
+  change (-16.5%, 95% CI -25.0% to -7.0%). A log-scale result passed as `estimate=`/`se=`
+  with units that do not say "log" is not detected; name the scale in `units`.
+* **Estimate and midpoint.** `analyze(estimate=4.4, ci=(1.0, 7.4))` used the midpoint 4.2
+  and said rounding explained the difference; rounding explains at most 0.1. The note now
+  says so only when it is true, and otherwise gives the gap and the tolerance and asks the
+  user to check that the estimate and interval belong together
+  (`raw_input["estimate_vs_midpoint"]` records both values). The tolerance itself (5% of
+  the half-width plus rounding) is unchanged; a stricter check would refuse some published
+  intervals computed on another scale.
+* **Difference between p-values.** `The difference in p-values was 0.0111.` was read as a
+  p-value equal to the result's. Differences, changes, gaps and comparisons between
+  p-values, "the p-values differed" and "p dropped from 0.04 to 0.01" now get `check`
+  (the last was a false direction conflict): a difference between p-values is not the
+  p-value of any test. Other phrasings are not recognised.
+* **Claims after "neither equivalence nor an effect larger than ...".** The size qualifier
+  took the rest of the sentence, so "and prove the treatment caused harm for everyone" was
+  not checked. The qualifier now stops at a conjunction, a relative pronoun or a verb
+  (at most eight words); the rest of the sentence is checked as usual.
+
+Found while re-testing, not changed: a "sentence" of thousands of characters with no
+punctuation can take seconds to check, because some clause patterns scan back over the
+whole run of words. Ordinary text is not affected (a 3,000-character paragraph takes
+milliseconds); the patterns will be bounded in 0.6.0.
+
 ## Review of the 0.5.0 development branch — changed, not yet re-reviewed
 
 An independent review reproduced the failures below on commit `fff60a1`. Changes addressing

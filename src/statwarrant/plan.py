@@ -155,6 +155,11 @@ class Plan:
             lo = checked_float(ci[0], "ci lower bound")
             hi = checked_float(ci[1], "ci upper bound")
         rounding = 0.0
+        if baseline is not None and (ratio or _log_scale(self.units)):
+            raise ValueError(
+                "a baseline cannot be combined with a ratio or a log-scale result: the result is already relative "
+                "(a ratio of 0.83 is a change of -17%), and dividing its log by a baseline would give a meaningless "
+                "relative change. Omit baseline=; with ratio=True statwarrant reports the change on the ratio scale.")
         if ratio:
             if ci is None or result is not None:
                 raise ValueError("ratio=True needs ci=(lower, upper) on the ratio scale (optionally with estimate=)")
@@ -197,9 +202,21 @@ class Plan:
                     )
                 if gap > 1e-12 * max(1.0, abs(mid)):
                     shown = (lambda x: f"{math.exp(x):.6g}") if ratio else (lambda x: f"{x:.6g}")
-                    provenance.append(f"The estimate given ({shown(est_input)}) differs from the interval's midpoint "
-                                      f"({shown(mid)}) by no more than rounding of the printed numbers explains; "
-                                      f"statwarrant uses the midpoint, so the published interval is reproduced.")
+                    if gap <= rounding:
+                        provenance.append(f"The estimate given ({shown(est_input)}) differs from the interval's "
+                                          f"midpoint ({shown(mid)}) by no more than rounding of the printed numbers "
+                                          f"explains. statwarrant uses the midpoint, so the interval is reproduced.")
+                    else:
+                        scale = " on the log scale" if ratio else ""
+                        provenance.append(
+                            f"The estimate given ({shown(est_input)}) is {gap:.3g}{scale} from the interval's midpoint "
+                            f"({shown(mid)}): more than rounding of the printed numbers explains (up to "
+                            f"{rounding:.3g}), but within the asymmetry statwarrant tolerates "
+                            f"({SYMMETRY_TOLERANCE * half + rounding:.3g}: {SYMMETRY_TOLERANCE:.0%} of the half-width "
+                            f"plus rounding). statwarrant uses the midpoint, so the interval is reproduced and the "
+                            f"estimate given is not; check that the estimate and the interval belong together.")
+                    raw["estimate_vs_midpoint"] = {"given": _raw(est_input), "midpoint": _raw(mid),
+                                                   "explained_by_rounding": gap <= rounding}
             est = mid
             d = df_input
             source = f"interval ({level_text(ci_level)})" + (", ratio scale, analysed as logs" if ratio else "")
@@ -211,6 +228,16 @@ class Plan:
             source = "estimate and standard error"
 
         res = self._finish(est, s, d, source, baseline, null, label, raw)
+        if ratio and self.units and not _log_scale(self.units):
+            provenance.append(f"ratio=True analyses the log of the ratio, so the estimate, interval and thresholds reported are log ratios; the "
+                              f"declared units ({self.units!r}) do not say so. Declare units such as 'log "
+                              f"{self.units}' to make reports read correctly.")
+        if ratio:
+            lo_r, hi_r = (math.exp(x) for x in res.evidence.zero_interval)
+            mid_r = math.exp(res.evidence.estimate)
+            provenance.append(f"On the ratio scale: {mid_r:.4g} ({level_text(res.evidence.zero_level)} CI {lo_r:.4g} "
+                              f"to {hi_r:.4g}), a relative change of {mid_r - 1:+.1%} ({lo_r - 1:+.1%} to "
+                              f"{hi_r - 1:+.1%}).")
         for note in reversed(provenance):
             res.claims.notes.insert(0, note)
         if provenance:
@@ -320,6 +347,11 @@ class Plan:
         out["registration"] = self.registration
         out["registration_verified"] = False
         return out
+
+
+def _log_scale(units: Optional[str]) -> bool:
+    """Units declaring a log scale (log-odds, log hazard ratio, logit, ln ...)."""
+    return bool(units) and bool(re.search(r"\blog(?:arithm\w*)?\b|\blog[- ]|logit|\bln\b", units.lower()))
 
 
 _DESIGNS = {"randomized": "randomised", "rct": "randomised", "randomised controlled trial": "randomised",

@@ -109,7 +109,7 @@ result. **Not verified** lists parts it recognised but could not check, for you 
 | Input checks | Adapters check the original statistic and p-value, with limitations for extremely small p-values; see known issues. |
 | Design sensitivity | Power, Type S and exaggeration ratio under assumed effects, with the source of each assumption required. |
 | Scope | The linter can warn about some generalizations; it does not verify the stated scope or catch every overgeneralization. |
-| Absolute and relative | With a `baseline`, both changes are reported side by side. |
+| Absolute and relative | With a `baseline`, both changes are reported side by side. A ratio (`ratio=True`) is reported as a relative change on the ratio scale; a baseline cannot be combined with a ratio or log-scale result. |
 | Common inputs | scipy t-test results, statsmodels fits, estimate + SE, a published interval, or paired item scores (e.g. two models on the same test questions, with cluster-robust SE). |
 
 ## Install
@@ -196,8 +196,12 @@ the original interval was symmetric: give `estimate=` too when you have it, so t
 check can run. An interval far from zero relative to its width (say 10^14 ± 0.3) is
 refused, because its width cannot be recovered accurately; give `estimate=` and `se=`. For ratios (odds, risk, rate, hazard), pass the printed
 numbers with `ratio=True`, or give log-scale numbers; the symmetry check allows for the
-rounding of the printed digits. For bootstrap or other asymmetric intervals, give
-`estimate=` and `se=`.
+rounding of the printed digits. A small gap between the estimate and the midpoint is
+tolerated (5% of the half-width plus rounding); statwarrant then uses the midpoint and
+says whether rounding explains the gap. With `ratio=True` the report adds the ratio and
+the relative change with its interval (`0.83 (0.75 to 0.93)` is -16.5%, -25.0% to
+-7.0%); `baseline=` is refused for ratios and log-scale units, because the result is
+already relative. For bootstrap or other asymmetric intervals, give `estimate=` and `se=`.
 
 ### Describing the study
 
