@@ -4,32 +4,41 @@ These are known, unresolved issues. The examples are targeted checks, not estima
 of how often errors occur. Use statwarrant as an aid, not an automated validator;
 independently check calculations and the full text of research claims.
 
-## 0.5.0.dev0 follow-up review — not yet fixed
+## 0.5.0.dev0 follow-up review — changed on this branch, not yet re-reviewed
 
-The following failures were reproduced on integration commit `fff60a1`, including from
-its installed wheel. They are targeted counterexamples, not estimates of frequency.
-The documentation update recording them does not change the package code.
+An independent review reproduced the failures below on commit `fff60a1`. Changes addressing
+each have regression tests in `tests/test_review_050.py`; they have not been reviewed again.
+They are targeted counterexamples, not estimates of frequency.
 
-* **Coordinated negation can hide other claims.** For an inconclusive test-score result,
-  `The data support neither a difference nor equivalence and prove the treatment caused
-  harm for everyone.` can be marked `consistent` as one span, with no warnings or unchecked
-  text, hiding the subsequent certainty, causality and generalization claims. It can also
-  treat a second outcome, or a different equivalence margin, as if it were the result tested.
-* **Ratio types and comparison order.** A log-odds estimate can mark `risk doubled`
-  consistent as if it were an odds ratio; the reverse treatment/control order can also be
-  marked consistent. Risk, odds, rate and hazard are different quantities. Numerical
-  `fold` expressions can match a different outcome. Verify the quantity, logarithm base,
-  and numerator and denominator independently.
-* **Interval endpoint and sign.** With estimate -2 and SE 0.1, `The effect could be as
-  high as 2.2.` can be marked consistent even though the 95% interval is entirely negative.
-  Some `as low as` claims can also match the upper rather than lower endpoint.
-* **Unsupported wording may raise.** `The odds were two fold.` can raise `KeyError`
-  rather than return a warning. Negated ratio wording can also yield a misleading conflict.
+* **Coordinated negation could hide other claims.** `The data support neither a difference
+  nor equivalence and prove the treatment caused harm for everyone.` was one `consistent`
+  span. Each "neither ... nor" item is now a short phrase that stops at a clause boundary
+  or conjunction, so "prove", "caused" and "for everyone" are checked. An item that names
+  something other than the declared outcome or contrast (`a difference in mortality`), or
+  its own margin, gets `check`. Items longer than eight words are not read as this
+  construction at all.
+* **Ratio types and comparison order.** `risk doubled` with a log-odds result was
+  `consistent`, and so was the reverse treatment/control order. A ratio is now compared
+  only when the sentence's quantity (odds, risk, rate, hazard) matches the log scale named
+  in the units; it is never `consistent`, because statwarrant does not verify which group
+  is the numerator, and it is a `conflict` only when the factor is ruled out in both
+  orders. Negated ratio wording and factors whose clause names no quantity get `check`.
+  The units must say what was logged (`log-odds`, `log rate ratio`); `log ratio` alone is
+  not enough. Verify the quantity, base and order yourself.
+* **Interval endpoint and sign.** With estimate -2 and SE 0.1, `could be as high as 2.2`
+  was `consistent`. "As high as" and "as low as" are now compared with the matching end and
+  its sign; "as large as" with no stated sign gets `check` when the matching end is
+  negative; "as small as" gets `check` when the interval includes zero.
+* **Unsupported wording raised.** `The odds were two fold.` raised `KeyError`; it now gets
+  `check`. Random combinations of ratio, negation and interval wording (5,000 sentences)
+  raised no exception; that is not a proof for all inputs.
 
-The release workflow in this branch is manual, but naming a GitHub environment does not
-itself require approval. Do not configure a PyPI trusted publisher or dispatch a release
-until the environment protections, reviewer permissions and test requirements are checked.
-The proposed Colab notebook currently installs `main`, not this review branch.
+The release workflow runs only when the repository owner starts it by hand and types a
+confirmation, and PyPI uploads must run from a version tag. Naming a GitHub environment
+still does not require approval by itself, and the workflow cannot check the environment's
+settings: configure the `pypi` environment's required reviewers before any trusted
+publisher. The quick-start notebook now installs this branch (`integrate/0.5.0`) and prints
+the installed commit.
 
 ## Third user trial (new data, sentences frozen before checking)
 

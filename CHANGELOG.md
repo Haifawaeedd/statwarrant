@@ -19,6 +19,13 @@ external review. No public release or tag is implied.
   large as 2.5"), "not associated with" and size words after a longer subject are
   checked. These rules were written on the second trial's sentences, before the third
   trial's sentences existed, and were not changed after it.
+* After an independent review of this branch: "neither ... nor" items stop at clause
+  boundaries so later claims are checked, and items about another outcome or margin get
+  a check; ratios are compared only when odds, risk, rate or hazard match the log scale,
+  are never marked consistent (order not verified) and conflict only when ruled out in
+  both orders; "as high as" / "as low as" use the matching interval end and sign;
+  unrecognised ratio wording no longer raises. The release workflow can only be started
+  by the owner with a typed confirmation; the notebook installs this branch.
 * Public-trial files: Colab quick-start notebook, an issue form for sentences the
   checker gets wrong, CI on macOS and Windows, a manually started and approved release
   workflow (TestPyPI or PyPI), `SECURITY.md`, `CODE_OF_CONDUCT.md`, and an AI-use

@@ -23,17 +23,17 @@ importance, and it can flag common misreadings in a sentence you are about to wr
 > test set. Always check group order, outcome, contrast and the complete sentence
 > independently. See [KNOWN_ISSUES.md](KNOWN_ISSUES.md).
 >
-> **Review findings, not yet fixed:** newly added sentence rules can hide other claims,
-> confuse odds and risk, misread comparison order or interval endpoints, or raise an
-> exception for some wording. Do not rely on the sentence checker for research decisions.
-> See the 0.5.0.dev0 follow-up review in [KNOWN_ISSUES.md](KNOWN_ISSUES.md).
+> **Review findings changed, not yet re-reviewed:** an independent review found that new
+> sentence rules could hide other claims, confuse odds and risk, misread comparison order
+> or interval ends, or raise an exception. Those cases are changed and tested, but the
+> changes have not been reviewed again. Do not rely on the sentence checker for research
+> decisions. See [KNOWN_ISSUES.md](KNOWN_ISSUES.md).
 >
 > This is an unreleased development snapshot, not a tag or a PyPI release. Keep it on a
 > review branch until those findings have been addressed; pin the commit for reproducibility.
 
-The proposed quick-start notebook is in `examples/quickstart.ipynb`, but its installation
-cell points to `main`, which may not contain this branch. Do not use it to test this snapshot
-without first changing and verifying the installed commit. **Found a sentence the checker judged wrongly?**
+**Try it** in the [quick-start notebook on Colab](https://colab.research.google.com/github/Haifawaeedd/statwarrant/blob/integrate/0.5.0/examples/quickstart.ipynb)
+(nothing to install; it installs this branch and prints the commit). **Found a sentence the checker judged wrongly?**
 [Report it](https://github.com/Haifawaeedd/statwarrant/issues/new?template=linter.yml); this is
 the most useful feedback. Reports are public: do not paste confidential or unpublished text.
 
