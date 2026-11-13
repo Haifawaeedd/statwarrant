@@ -499,12 +499,14 @@ def declare(
         Where the plan's fingerprint was registered (an OSF link, a commit URL). Not
         part of the fingerprint, so it can be added after registering.
     design : {"randomised", "observational"}, optional
-        How the compared groups were formed. With "randomised", causal wording about an
-        established average effect is not flagged; with "observational", it is a conflict.
+        How the compared groups were formed. Positive causal claims with "randomised" need
+        human review; with "observational", it is generally a conflict.
         Your own description: reported, never verified.
     subgroup : str, optional
-        When the result is itself a subgroup result ("patients on mechanical
-        ventilation"): sentences naming that subgroup are not flagged as subgroup claims.
+        Description when the result is itself a subgroup result ("patients on mechanical
+        ventilation"). Recognised subgroup wording always needs manual review, even if
+        it names this description: the linter cannot verify subgroup identity. Detection
+        is pattern-based and incomplete; other subgroup wording may be unchecked.
     """
     if interval_policy not in POLICIES:
         raise ValueError(f"interval_policy must be one of {POLICIES}")

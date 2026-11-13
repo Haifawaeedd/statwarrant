@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased (0.5.1.dev0)
+
+* Recognised subgroup wording now requires manual review rather than being marked
+  consistent on the basis of overlapping words. This includes apparently exact matches.
+* Recognised causal wording in a declared randomised study now requires manual review;
+  a declared design and statistical significance do not verify the intervention,
+  outcome, contrast, scope, or assumptions. Existing caution and observational-design
+  rules retain limitations described in KNOWN_ISSUES.md.
+
+These changes are not in the published 0.5.0 release. Recognition remains partial;
+the new targeted tests are not a measure of accuracy on unseen sentences.
+
 ## 0.5.0
 
 First public trial release. Built on the comparison-safety branch (commit 8ad4164)

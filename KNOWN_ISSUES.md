@@ -4,6 +4,40 @@ These are known, unresolved issues. The examples are targeted checks, not estima
 of how often errors occur. Use statwarrant as an aid, not an automated validator;
 independently check calculations and the full text of research claims.
 
+## Published 0.5.0: subgroup and causal false assurances
+
+The version 0.5.0 available on PyPI can mark a subgroup as consistent because a
+single word overlaps: a result declared for men with diabetes can incorrectly mark
+wording about women with diabetes consistent. It can also mark `caused` consistent
+just because the declared design is randomised and the result is significant, even
+when the sentence names an unrelated cause or outcome. Check the full subgroup,
+intervention, outcome, contrast and design assumptions yourself. An unchecked text
+fragment does not make an incorrect positive explanation safe.
+
+The unreleased 0.5.1.dev0 development snapshot changes recognised subgroup and
+randomised-design causal wording to `check`. It still uses incomplete English
+patterns and may miss a subgroup or causal claim altogether. For example, `in group A`,
+`in patients with T2DM`, or `Women with diabetes had a significant effect` can leave
+the subgroup unchecked, and `The treatment induced cancer` is not recognised as a
+causal claim. In `The treatment resulted in men with cancer`, the original overlapping
+patterns can recognise the subgroup cue while missing `resulted in` as a causal cue;
+a subgroup warning does not verify the causal claim. A `no_warnings` result can still
+include unchecked text and is not a clearance. The library does not verify study
+metadata or establish causality. Negations and caution scopes remain heuristic;
+observational causal warnings can themselves be wrong. Additional manual review
+remains necessary.
+
+An additional pre-existing limitation affects both 0.5.0 and this development
+snapshot: with a significant randomised result, `The treatment is the cause of death
+and the effect was statistically significant` can return `no_warnings`, with the
+significance span marked consistent, while `cause of death` is neither checked as a
+causal claim nor listed in `unchecked`. Do not assume that the unchecked list is
+exhaustive. Similarly, `The treatment induced cancer and the effect was significant`
+can have `no_warnings` even though the causal claim is unchecked. In an observational
+study, `The treatment did not cause cancer` can wrongly produce a causal conflict;
+a nearby caution can instead turn a causal conflict into `check`. These are not fixed
+by the two conservative judgment changes and require manual review of the whole text.
+
 ## Review of the 0.5.0 release candidate
 
 A review of the release candidate (draft pull request #1, commit `a5269d0`) reproduced the

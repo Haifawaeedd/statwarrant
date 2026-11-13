@@ -17,9 +17,9 @@ reports one of:
 
 A sentence gets the status ``warnings`` (at least one conflict or check),
 ``no_warnings`` (only consistent parts) or ``no_supported_pattern``. ``no_warnings``
-is not a clearance: everything outside the recognised parts, listed in
-``CheckResult.unchecked``, was not checked. A warning is a prompt for review, not
-proof that the sentence is false.
+is not a clearance: parts of the sentence may not have been checked, and
+``CheckResult.unchecked`` can omit some of them. Review the complete sentence.
+A warning is a prompt for review, not proof that the sentence is false.
 """
 
 from __future__ import annotations
@@ -995,14 +995,6 @@ def _topic(phrase: str) -> List[str]:
 _CAUTION_SPAN = re.compile(r"\b(?:not|cannot|never)\s+(?:\w+\s+){0,2}?(?:prove[sdn]?|proof|imply|implies)\b|"
                            r"n't\s+(?:\w+\s+){0,2}?(?:prove|imply)\b")
 _CAUTION = re.compile(_CAUTION_SPAN.pattern + r"|\bwhether\b[^.;]*\bcaus|\bcaus\w*[^.;]*\bcannot be (?:determined|established)")
-_SUBGROUP_GENERIC = set("""patients patient people participants participant those who were was are is receiving received
-receive taking took given with without among only either group groups subgroup subgroups adults children women men
-the a an of in on for and or not no non any all some""".split())
-
-
-def _subgroup_words(text: str) -> set:
-    return {w for w in re.findall(r"[a-z][a-z-]+", text.lower()) if len(w) > 2 and w not in _SUBGROUP_GENERIC}
-
 
 _COUNT_NOUNS = (r"(?:patients?|participants?|subjects?|people|persons?|individuals?|women|men|children|adults|"
                 r"cases?|deaths?|studies|trials?|centres?|centers?|hospitals?|sites?|items?|questions?|cups?|"
@@ -1155,7 +1147,7 @@ def _judge_hit(h: _Hit, ctx: Context, sign: Optional[int]) -> Tuple[str, str]:
                              f"evidence comes from {where} only.")
         return CONFLICT, f"The evidence comes from {where} only; it does not show the effect holds beyond it."
 
-    if cat == "caution" or (cat in ("certainty", "causal") and _CAUTION.search(h.data.get("clause", "") or h.phrase)):
+    if cat == "caution" or (cat == "certainty" and _CAUTION.search(h.data.get("clause", "") or h.phrase)):
         return CONSISTENT, "A caution (the data do not prove or imply this), not a claim."
 
     if cat == "certainty":
@@ -1163,28 +1155,25 @@ def _judge_hit(h: _Hit, ctx: Context, sign: Optional[int]) -> Tuple[str, str]:
                          f"({z}), not a single exact value.")
 
     if cat == "causal":
+        if _CAUTION.search(h.data.get("clause", "") or h.phrase):
+            return CHECK, ("This causal wording may be part of a caution, but its scope is not verified. "
+                           "Check whether it asserts a causal claim and review that claim by hand.")
         if ctx.design == "observational":
             return CONFLICT, ("Causal wording, but the plan declares an observational design: the result shows an "
                               "association. (A causal design with stated assumptions would need to be described.)")
         if ctx.design == "randomised":
-            if ev.differs_from_zero:
-                return CONSISTENT, (f"Randomised design (as declared) and an established average effect ({z}); "
-                                    f"causal wording about that average effect is supported.")
-            return CHECK, (f"Randomised design (as declared), but the effect is not established ({z}); causal "
-                           f"wording overstates it.")
-        return CHECK, ("Whether causal wording is warranted depends on the design (randomisation, confounding), "
-                       "which statwarrant does not know. Declare design='randomised' or 'observational'.")
+            design_note = "The design is declared randomised. "
+        else:
+            design_note = "The design was not declared. "
+        return CHECK, (design_note + "statwarrant does not verify that the claim's intervention, outcome, contrast "
+                       "and scope match the result, or that causal assumptions hold. Statistical significance "
+                       "alone cannot establish these; check the claim and assumptions by hand.")
 
     if cat == "subgroup":
         if ctx.subgroup:
-            said = _subgroup_words(h.data.get("clause", "") or h.phrase)
-            declared = _subgroup_words(ctx.subgroup)
-            negated = (lambda t: bool(re.search(r"\b(?:not|no|non|without)\b|n't", t.lower())))
-            if said & declared and negated(h.data.get("clause", "")) == negated(ctx.subgroup):
-                return CONSISTENT, (f"The result is declared as a subgroup result ({ctx.subgroup}), and the sentence "
-                                    f"names it ({', '.join(sorted(said & declared))}).")
-            return CHECK, (f"The result is declared for the subgroup '{ctx.subgroup}'; the sentence may name a "
-                           f"different one.")
+            return CHECK, (f"The result is declared for the subgroup '{ctx.subgroup}', but statwarrant cannot "
+                           "verify which subgroup this wording describes. Compare the entire wording, including "
+                           "other groups and negations, with the analysis by hand.")
         return CHECK, ("The result is the average difference between the compared conditions. A claim about one "
                        "group alone, or about a subgroup, needs its own analysis. If the result is itself a subgroup "
                        "result, declare subgroup='...'.")
@@ -1967,9 +1956,9 @@ _ACTION = {
     "nonzero": "Check the zero test.",
     "generalization": "Limit the claim to the declared scope and to the average effect.",
     "certainty": "Replace certainty wording with the interval.",
-    "causal": "Check that the design supports causal language (randomisation, no confounding).",
+    "causal": "Check the intervention, outcome, contrast and scope against the result, and verify causal assumptions.",
     "vague_result": "State the direction, the interval and what was tested.",
-    "subgroup": "Analyse the subgroup or group separately before claiming anything about it.",
+    "subgroup": "Verify the stated group against the analysis; analyse it separately if necessary.",
     "bayesian_wording": "Use frequentist wording for a confidence interval, or run a Bayesian analysis.",
     "probability_misreading": "Rephrase: the interval or p-value does not give this probability.",
     "direction": "Check the direction against the interval.",

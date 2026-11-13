@@ -16,9 +16,9 @@ def _parts(res, sentence):
 
 # ---- design --------------------------------------------------------------------------------
 
-def test_causal_wording_with_a_randomised_design_and_an_established_effect():
+def test_randomised_design_and_significance_alone_do_not_verify_causal_wording():
     res = sw.declare(design="randomised", units="points").analyze(estimate=4.0, se=1.0)
-    assert _parts(res, "The program led to higher scores.")["causal"].status == "consistent"
+    assert _parts(res, "The program led to higher scores.")["causal"].status == "check"
 
 
 def test_causal_wording_with_a_randomised_design_but_no_established_effect():
@@ -67,11 +67,11 @@ def test_affirmed_proof_is_still_a_conflict():
 
 # ---- subgroup results ------------------------------------------------------------------------
 
-def test_sentence_naming_the_declared_subgroup():
+def test_sentence_naming_the_declared_subgroup_requires_review():
     res = sw.declare(subgroup="patients receiving no respiratory support", units="log rate ratio").analyze(
         ci=(-0.09, 0.44))
     s = "Among patients who were not receiving respiratory support, no benefit was evident."
-    assert _parts(res, s)["subgroup"].status == "consistent"
+    assert _parts(res, s)["subgroup"].status == "check"
 
 
 @pytest.mark.parametrize("sentence", [

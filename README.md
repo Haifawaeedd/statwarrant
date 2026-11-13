@@ -21,6 +21,11 @@ importance, and it can flag common misreadings in a sentence you are about to wr
 > not check. No warning is never an approval. Always check group order, outcome, contrast and the complete
 > sentence yourself. See [KNOWN_ISSUES.md](KNOWN_ISSUES.md).
 
+> **Unreleased development snapshot.** The published PyPI release 0.5.0 can incorrectly
+> mark different subgroups or unrelated causal wording as consistent. The conservative
+> checks described in this development branch are not present in PyPI 0.5.0. Detection
+> is incomplete, so review the complete sentence and the analysis yourself.
+
 **Try it** in the [quick-start notebook on Colab](https://colab.research.google.com/github/Haifawaeedd/statwarrant/blob/main/examples/quickstart.ipynb)
 (nothing to install). **Found a sentence the checker judged wrongly?**
 [Report it](https://github.com/Haifawaeedd/statwarrant/issues/new?template=linter.yml); this is
@@ -78,8 +83,9 @@ print(res.check("The new method improved scores by about 4 points and is safe fo
   A warning is a prompt for review, not proof that the sentence is false.
 ```
 
-The checker only warns; it never approves a sentence. A **conflict** contradicts the
-result. **Not verified** lists parts it recognised but could not check, for you to review.
+The checker only warns; it never approves a sentence. A **conflict** is an apparent
+contradiction that can itself be mistaken. **Not verified** lists parts it recognised
+but could not check, for you to review.
 "Is safe" was not checked at all, and the output says so.
 
 ## Why
@@ -104,7 +110,7 @@ result. **Not verified** lists parts it recognised but could not check, for you 
 | Claim contract | Allowed statements with numbers filled in, and a list of blocked statements with reasons. |
 | Every threshold at once | Two numbers give the decision for every symmetric threshold: below one, the effect exceeds it; above the other, equivalence holds; in between, neither. |
 | Report with provenance | Outcome, contrast, scope, the declared threshold and its reason, the plan fingerprint and registration link, and a list of what statwarrant does not verify. Versioned JSON and a Markdown report. |
-| Sentence linter (warnings only) | `res.check("...")` flags possible misreadings in an English sentence, with the exact words, a rule id and what to check. Numbers are read by role (estimate, interval, standard error, threshold) and sign, intervals as ordered pairs; a number whose role is unclear is flagged, not passed. It never approves a sentence and lists the text it did not check. Checked sentences are kept in the report. |
+| Sentence linter (warnings only) | `res.check("...")` flags possible misreadings in an English sentence, with the exact words, a rule id and what to check. Numbers are read by role (estimate, interval, standard error, threshold) and sign, intervals as ordered pairs; a number whose role is unclear is flagged, not passed. It never approves a sentence and lists some, but not necessarily all, unchecked text. Checked sentences are kept in the report. |
 | Level-conflict detection | Under the TOSTER-style policy, flags when equivalence rests on the 90% interval while the 95% interval reaches outside the bounds. |
 | Input checks | Adapters check the original statistic and p-value, with limitations for extremely small p-values; see known issues. |
 | Design sensitivity | Power, Type S and exaggeration ratio under assumed effects, with the source of each assumption required. |
@@ -115,13 +121,12 @@ result. **Not verified** lists parts it recognised but could not check, for you 
 ## Install
 
 ```bash
-pip install "git+https://github.com/Haifawaeedd/statwarrant@v0.5.0"
+pip install "statwarrant==0.5.0"
 ```
 
-Pin the version you used (the `v0.5.0` tag), so your analysis can be reproduced.
-Requires Python 3.9+, NumPy 1.22+ and SciPy 1.11+. If an earlier development snapshot is
-installed, add `--force-reinstall` so it is not reused silently. statwarrant is not yet on
-PyPI.
+This installs the released 0.5.0, not the unreleased fixes described above. Pin the
+version used in an analysis, and always check its output independently. Requires Python
+3.9+, NumPy 1.22+ and SciPy 1.11+.
 
 ## Real-data regression example
 
@@ -223,10 +228,16 @@ sw.declare(..., design="randomised")      # or "observational"; used to judge ca
 sw.declare(..., subgroup="patients on mechanical ventilation")   # the result is a subgroup result
 ```
 
-Both are your own description, reported and never verified. With `design="randomised"`,
-causal wording about an established average effect is not flagged; with
-`"observational"` it is a conflict. With `subgroup`, a sentence naming that subgroup is
-not flagged as a subgroup claim.
+Both are your own description, reported and never verified. **In this unreleased
+development snapshot** (not in the PyPI 0.5.0 install above), with
+`design="randomised"`, recognised positive causal claims need human review: the
+intervention, outcome, contrast, scope and causal assumptions are not verified, even
+when the result is statistically significant. With `"observational"`, positive causal
+wording is generally a conflict.
+Recognised subgroup wording always needs review, even when the declared subgroup seems
+to match. Compare the complete wording to the subgroup analysis by hand. Detection uses
+limited English patterns; some causal or subgroup wording may remain unchecked. No
+warning is not a clearance.
 
 ### Comparing two models on the same test items
 
@@ -316,7 +327,8 @@ Extreme finite inputs can overflow and prevent JSON export; see known issues.
 * It does not verify your descriptions (outcome, contrast, scope), causal claims, or
   generalisation beyond the data; every report lists these.
 * The sentence linter is pattern-based, English-only and warnings-only. No warning is
-  not a clearance: it checks only the words it recognises and lists the rest.
+  not a clearance: it checks only recognised parts and may omit some unchecked text from
+  the list. Review the complete sentence.
 * The linter's accuracy has not been measured on sentences annotated by independent
   researchers; until it is, treat it as an experimental aid. The test corpus in
   `tests/test_sentences.py` was annotated by the maintainers and guards against
