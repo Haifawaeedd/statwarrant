@@ -143,6 +143,15 @@ These examples are not certification of all statistical methods or of the senten
 linter. Longley's OLS model has strongly correlated predictors; interpretation of
 any estimate depends on the original data and model assumptions, not on statwarrant.
 
+## How it is checked
+
+[VALIDATION.md](VALIDATION.md) lists what has been checked and how: NIST reference values,
+independently computed tails, design analysis against numerical integration and a published
+worked example, adapters that recompute reported statistics, results from six published
+studies, the supported environments, and what has not been checked yet.
+[examples/published_results.py](examples/published_results.py) runs statwarrant on results
+from two published trials.
+
 ## Independent human evaluation
 
 The [human-review starter kit](evaluation/human-review/README.md) contains empty CSV
