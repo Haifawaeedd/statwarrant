@@ -140,3 +140,80 @@ def test_size_of_the_study_is_not_a_size_claim():
     assert "big" not in [p.rule for p in res.check("In this large prospective study, mortality was lower.",
                                                    record=False).parts]
     assert "big" in [p.rule for p in res.check("The study found a large effect.", record=False).parts]
+
+
+# ---- adversarial review of the new options ---------------------------------------------
+
+@pytest.mark.parametrize("estimate,accepted", [(4.2, True), (4.4, True), (4.5, False), (4.6, False)])
+def test_rounding_allowance_uses_the_common_printed_precision(estimate, accepted):
+    # 1.0 is printed to one decimal like 4.2 and 7.4, so it must not widen the allowance.
+    plan = sw.declare()
+    if accepted:
+        plan.analyze(estimate=estimate, ci=(1.0, 7.4))
+    else:
+        with pytest.raises(ValueError, match="not symmetric"):
+            plan.analyze(estimate=estimate, ci=(1.0, 7.4))
+
+
+def test_estimate_differing_from_the_midpoint_by_rounding_is_disclosed():
+    res = sw.declare(units="log rate ratio").analyze(estimate=0.83, ci=(0.75, 0.93), ratio=True)
+    assert any("differs from the interval's midpoint" in n and "0.83" in n for n in res.claims.notes)
+    exact = sw.declare().analyze(estimate=4.2, ci=(1.0, 7.4))
+    assert not any("midpoint" in n for n in exact.claims.notes)
+
+
+@pytest.mark.parametrize("kwargs", [dict(estimate=0.8, ratio=True), dict(estimate=0.8, se=0.1, ratio=True),
+                                    dict(ci=(0.9, 0.9), ratio=True)])
+def test_ratio_input_errors(kwargs):
+    with pytest.raises(ValueError):
+        sw.declare().analyze(**kwargs)
+
+
+@pytest.mark.parametrize("alias,design", [("RCT", "randomised"), ("Randomized controlled trial", "randomised"),
+                                          ("cohort", "observational"), ("case-control", "observational"),
+                                          ("cross_sectional", "observational")])
+def test_design_aliases(alias, design):
+    assert sw.declare(design=alias).design == design
+
+
+@pytest.mark.parametrize("sentence,number", [
+    ("Sleep improved by 2 hours over 12 weeks.", "12"),
+    ("After 12 weeks sleep improved by 2 hours.", "12"),
+])
+def test_time_points_in_another_unit_than_the_effect_are_skipped(sentence, number):
+    res = sw.declare(units="hours", sesoi=1, sesoi_source="x").analyze(estimate=2.0, se=0.5)
+    out = res.check(sentence, record=False)
+    assert all(p.text != number for p in out.parts), str(out)
+    assert any(p.rule == "magnitude" for p in out.parts)
+
+
+@pytest.mark.parametrize("sentence", ["Stay was shorter by 2 days.", "A difference of 2 days was found."])
+def test_effects_stated_in_time_units_are_still_read(sentence):
+    res = sw.declare(units="hours").analyze(estimate=2.0, se=0.5)
+    assert any("2" in p.text for p in res.check(sentence, record=False).parts)
+
+
+def test_caution_and_claim_in_one_sentence_are_judged_separately():
+    res = sw.declare(design="observational").analyze(estimate=1.0, se=0.3)
+    rules = {p.rule: p.status for p in res.check("This cannot prove harm; coffee caused the decline.",
+                                                 record=False).parts}
+    assert rules["caution"] == "consistent" and rules["causal"] == "conflict"
+    rules = {p.rule: p.status for p in res.check("The results prove the effect but do not imply causation.",
+                                                 record=False).parts}
+    assert rules["certainty"] == "conflict" and rules["caution"] == "consistent"
+
+
+from hypothesis import given, settings, strategies as st  # noqa: E402
+
+
+@settings(max_examples=300, deadline=None)
+@given(log_est=st.floats(-3, 3), se=st.floats(0.01, 1.0), decimals=st.sampled_from([2, 3]))
+def test_rounded_published_ratios_are_always_accepted(log_est, se, decimals):
+    est, lo, hi = (round(math.exp(x), decimals) for x in (log_est, log_est - 1.959964 * se, log_est + 1.959964 * se))
+    if lo <= 0 or hi <= lo or est <= 0:
+        return
+    res = sw.declare().analyze(estimate=est, ci=(lo, hi), ratio=True)
+    same = sw.declare().analyze(ci=(math.log(lo), math.log(hi)))
+    assert res.evidence.estimate == pytest.approx(same.evidence.estimate)
+    assert (res.evidence.differs_from_zero, res.evidence.direction) == (same.evidence.differs_from_zero,
+                                                                        same.evidence.direction)

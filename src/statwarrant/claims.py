@@ -985,8 +985,9 @@ _COUNT_NOUNS = (r"(?:patients?|participants?|subjects?|people|persons?|individua
                 r"records?|respondents?|households?|schools?|students?|pupils?|animals?|mice|rats|cells?|samples?)")
 _TIME_NOUNS = r"(?:days?|weeks?|months?|years?|hours?)"
 _DESCRIPTIVE_COUNT = re.compile(r"\s+(" + _COUNT_NOUNS + r")\b")
-_TIME_POINT_BEFORE = re.compile(r"\b(?:at|within|by|after|over|during|for|up to|in|of|until|before)\s*$")
-_TIME_POINT_AFTER = re.compile(r"(?:-\s*" + _TIME_NOUNS.replace("s?", "") + r"\b|\s+" + _TIME_NOUNS + r"\b)")
+# "by" and "of" are left out: "shorter by 2 days", "a difference of 2 days" state effects
+_TIME_POINT_BEFORE = re.compile(r"\b(?:at|within|after|over|during|for|up to|in|until|before)\s*$")
+_TIME_POINT_AFTER = re.compile(r"(?:-\s*(day|week|month|year|hour)\b|\s+(day|week|month|year|hour)s?\b)")
 _DESCRIPTIVE_SHARE = re.compile(r"\b\d[\d,]*\s+(?:[a-z-]+\s+){0,2}?" + _COUNT_NOUNS + r"\s*\(\s*$")
 
 
@@ -999,7 +1000,7 @@ def _descriptive_count(original: str, start: int, end: int, ctx: "Context") -> b
         return not (units and m.group(1).rstrip("s") in units)
     m = _TIME_POINT_AFTER.match(original, end)
     if m and (original[end:end + 1] == "-" or _TIME_POINT_BEFORE.search(original[:start])):
-        return not units or not any(t in units for t in ("day", "week", "month", "year", "hour"))
+        return (m.group(1) or m.group(2)) not in units
     return False
 
 

@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import re
 from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal
 from numbers import Number as Numeric
 
@@ -160,12 +161,13 @@ class Plan:
             values = [lo, hi] + ([est_input] if est_input is not None else [])
             if not all(math.isfinite(v) and v > 0 for v in values):
                 raise ValueError("ratios and their interval must be finite and positive")
-            # rounding of the printed digits, carried to the log scale
-            rounding = sum(_half_unit(v) / v for v in values[2:]) + (_half_unit(lo) / lo + _half_unit(hi) / hi) / 2
+            # rounding of the printed digits (all three printed to the same precision), on the log scale
+            unit = _half_unit(*values)
+            rounding = sum(unit / v for v in values[2:]) + (unit / lo + unit / hi) / 2
             lo, hi = math.log(lo), math.log(hi)
             est_input = None if est_input is None else math.log(est_input)
         elif ci is not None and est_input is not None:
-            rounding = _half_unit(est_input) + (_half_unit(lo) + _half_unit(hi)) / 2
+            rounding = 2 * _half_unit(est_input, lo, hi)
 
         null = 0.0
         provenance: list = []
@@ -193,6 +195,11 @@ class Plan:
                         f"asymmetric interval would be misread. For ratios (odds, risk, hazard) give the log estimate "
                         f"and log interval; otherwise pass estimate= and se= directly."
                     )
+                if gap > 1e-12 * max(1.0, abs(mid)):
+                    shown = (lambda x: f"{math.exp(x):.6g}") if ratio else (lambda x: f"{x:.6g}")
+                    provenance.append(f"The estimate given ({shown(est_input)}) differs from the interval's midpoint "
+                                      f"({shown(mid)}) by no more than rounding of the printed numbers explains; "
+                                      f"statwarrant uses the midpoint, so the published interval is reproduced.")
             est = mid
             d = df_input
             source = f"interval ({level_text(ci_level)})" + (", ratio scale, analysed as logs" if ratio else "")
@@ -315,12 +322,23 @@ class Plan:
         return out
 
 
-def _half_unit(x: float) -> float:
-    """Half a unit in the last printed decimal of x, as written (0.83 -> 0.005, 12.3 -> 0.05)."""
-    text = repr(float(x))
-    if "e" in text or "E" in text:
-        return 0.0
-    decimals = len(text.split(".")[1].rstrip("0")) if "." in text else 0
+_DESIGNS = {"randomized": "randomised", "rct": "randomised", "randomised controlled trial": "randomised",
+            "randomized controlled trial": "randomised", "randomised trial": "randomised",
+            "randomized trial": "randomised", "cohort": "observational", "case control": "observational",
+            "cross sectional": "observational", "observational study": "observational"}
+
+
+def _half_unit(*xs: float) -> float:
+    """Half a unit in the last printed decimal, assuming the numbers were printed to the same
+    precision: the most decimals among them as written (0.83, 0.75, 0.93 -> 0.005; 4.2, 1.0,
+    7.4 -> 0.05, since 1.0 cannot be told from 1)."""
+    decimals = 0
+    for x in xs:
+        text = repr(float(x))
+        if "e" in text or "E" in text:
+            return 0.0
+        if "." in text:
+            decimals = max(decimals, len(text.split(".")[1].rstrip("0")))
     return 0.5 * 10.0 ** -decimals
 
 
@@ -381,9 +399,11 @@ def declare(
     if not MIN_ALPHA <= alpha < 0.5:
         raise ValueError(f"alpha must be at least {MIN_ALPHA:g} and below 0.5")
     if design is not None:
-        design = {"randomized": "randomised"}.get(str(design).strip().lower(), str(design).strip().lower())
+        key = re.sub(r"[\s_-]+", " ", str(design).strip().lower())
+        design = _DESIGNS.get(key, key)
         if design not in ("randomised", "observational"):
-            raise ValueError("design must be 'randomised' or 'observational' (or omitted)")
+            raise ValueError("design must be 'randomised' (also 'randomized', 'rct') or 'observational' (also "
+                             "'cohort', 'case-control', 'cross-sectional'), or omitted")
     if subgroup is not None and not str(subgroup).strip():
         raise ValueError("subgroup must be a non-empty description, or omitted")
 
