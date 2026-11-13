@@ -4,6 +4,33 @@ These are known, unresolved issues. The examples are targeted checks, not estima
 of how often errors occur. Use statwarrant as an aid, not an automated validator;
 independently check calculations and the full text of research claims.
 
+## 0.5.0.dev0 follow-up review — not yet fixed
+
+The following failures were reproduced on integration commit `fff60a1`, including from
+its installed wheel. They are targeted counterexamples, not estimates of frequency.
+The documentation update recording them does not change the package code.
+
+* **Coordinated negation can hide other claims.** For an inconclusive test-score result,
+  `The data support neither a difference nor equivalence and prove the treatment caused
+  harm for everyone.` can be marked `consistent` as one span, with no warnings or unchecked
+  text, hiding the subsequent certainty, causality and generalization claims. It can also
+  treat a second outcome, or a different equivalence margin, as if it were the result tested.
+* **Ratio types and comparison order.** A log-odds estimate can mark `risk doubled`
+  consistent as if it were an odds ratio; the reverse treatment/control order can also be
+  marked consistent. Risk, odds, rate and hazard are different quantities. Numerical
+  `fold` expressions can match a different outcome. Verify the quantity, logarithm base,
+  and numerator and denominator independently.
+* **Interval endpoint and sign.** With estimate -2 and SE 0.1, `The effect could be as
+  high as 2.2.` can be marked consistent even though the 95% interval is entirely negative.
+  Some `as low as` claims can also match the upper rather than lower endpoint.
+* **Unsupported wording may raise.** `The odds were two fold.` can raise `KeyError`
+  rather than return a warning. Negated ratio wording can also yield a misleading conflict.
+
+The release workflow in this branch is manual, but naming a GitHub environment does not
+itself require approval. Do not configure a PyPI trusted publisher or dispatch a release
+until the environment protections, reviewer permissions and test requirements are checked.
+The proposed Colab notebook currently installs `main`, not this review branch.
+
 ## Third user trial (new data, sentences frozen before checking)
 
 Three real datasets (RAND Health Insurance Experiment, credit-card expenditure, two

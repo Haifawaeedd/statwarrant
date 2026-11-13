@@ -4,7 +4,6 @@
 
 [![tests](https://github.com/Haifawaeedd/statwarrant/actions/workflows/tests.yml/badge.svg)](https://github.com/Haifawaeedd/statwarrant/actions/workflows/tests.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Haifawaeedd/statwarrant/blob/main/examples/quickstart.ipynb)
 
 `statwarrant` turns an estimate and its uncertainty into a **claim contract**: the
 statements your result supports, the statements it does not, and the reason for
@@ -24,12 +23,17 @@ importance, and it can flag common misreadings in a sentence you are about to wr
 > test set. Always check group order, outcome, contrast and the complete sentence
 > independently. See [KNOWN_ISSUES.md](KNOWN_ISSUES.md).
 >
-> This is an unreleased development snapshot, not a tag or a PyPI release. It is meant to
-> be merged into `main`; until then, install it from the `integrate/0.5.0` branch and pin
-> the commit when reproducing a result.
+> **Review findings, not yet fixed:** newly added sentence rules can hide other claims,
+> confuse odds and risk, misread comparison order or interval endpoints, or raise an
+> exception for some wording. Do not rely on the sentence checker for research decisions.
+> See the 0.5.0.dev0 follow-up review in [KNOWN_ISSUES.md](KNOWN_ISSUES.md).
+>
+> This is an unreleased development snapshot, not a tag or a PyPI release. Keep it on a
+> review branch until those findings have been addressed; pin the commit for reproducibility.
 
-**Try it** in the [quick-start notebook on Colab](https://colab.research.google.com/github/Haifawaeedd/statwarrant/blob/main/examples/quickstart.ipynb)
-(nothing to install). **Found a sentence the checker judged wrongly?**
+The proposed quick-start notebook is in `examples/quickstart.ipynb`, but its installation
+cell points to `main`, which may not contain this branch. Do not use it to test this snapshot
+without first changing and verifying the installed commit. **Found a sentence the checker judged wrongly?**
 [Report it](https://github.com/Haifawaeedd/statwarrant/issues/new?template=linter.yml); this is
 the most useful feedback. Reports are public: do not paste confidential or unpublished text.
 
