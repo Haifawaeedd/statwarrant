@@ -27,6 +27,7 @@ from __future__ import annotations
 import math
 import re
 import sys
+import unicodedata
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from typing import Dict, List, Optional, Tuple
@@ -322,11 +323,13 @@ _ESTABLISHED = (r"(?:established|shown|demonstrated|found|supported|confirmed|de
 # difference nor equivalence": a statement that two things are NOT established, judged item by
 # item (not a claim of no effect). Each item is a short phrase that stops at a clause boundary
 # or conjunction, so claims after it ("... and prove the treatment caused harm") are still read.
-_NEITHER_TOKEN = r"(?:[^\s.;,:()]|\.(?=\d))+"
+# An em dash is normalized to a standalone hyphen. Stop there, but retain signed
+# numbers and hyphenated words inside the item.
+_NEITHER_TOKEN = r"(?!-(?:\s|$))(?:[^\s.;,:()]|\.(?=\d))+"
 _NEITHER_STOP = (r"(?:and|but|or|so|yet|while|whereas|although|because|since|which|that|thus|hence|therefore|"
                  r"nor|neither|was|were|is|are|has|have|had|could|can|prove\w*|show\w*|caus\w*)")
 _NEITHER_ITEM = r"(?:\s+(?!" + _NEITHER_STOP + r"\b)" + _NEITHER_TOKEN + r"){1,8}?"
-_NEITHER_END = r"(?=\s*(?:[;,:()]|\.(?!\d)|$)|\s+" + _NEITHER_STOP + r"\b)"
+_NEITHER_END = r"(?=\s*(?:[;,:()]|\.(?!\d)|$)|\s+-\s+|\s+" + _NEITHER_STOP + r"\b)"
 _NEITHER_ESTABLISHED = (
     r"\bneither" + _NEITHER_ITEM + r"\s+nor" + _NEITHER_ITEM +
     r"\s+(?:was|were|is|are|has been|have been|had been|could be|can be)\s+(?:yet\s+)?(?:statistically\s+)?"
@@ -482,7 +485,7 @@ _NEITHER_EQUIVALENCE = re.compile(
     # a size qualifier on "an effect", up to a conjunction or verb, so later claims are still read
     r"(?:\s+(?:larger|greater|bigger|exceeding|beyond|above|more)\b"
     r"(?:\s+(?!(?:and|but|or|so|yet|while|whereas|although|because|since|which|that|thus|hence|therefore|was|were|"
-    r"is|are|has|have|had|could|can|prove\w*|show\w*|caus\w*)\b)(?:[^\s.;,:()]|\.(?=\d))+){0,8})?"
+    r"is|are|has|have|had|could|can|prove\w*|show\w*|caus\w*)\b)" + _NEITHER_TOKEN + r"){0,8})?"
 )
 _NUMBER_PATTERNS = [
     # "95% probability", "95% confident": a probability statement, not a percentage change
@@ -501,7 +504,9 @@ _NUMBER_PATTERNS = [
     ("p_difference", re.compile(r"\b(?:differences?|change|gap|contrast|comparison)\s+(?:between|in|of)\s+"
                                 r"(?:(?:the|their|two|these|both)\s+)*p\s*-?\s*values?\b"
                                 r"(?:\s*(?:<=|>=|=|<|>|\bof\b|\bwas\b|\bis\b|:)\s*" + _NUM + r")?|"
-                                r"\bp\s*-?\s*values?\s+(?:differ\w*|diverg\w*)\b|"
+                                # Keep a stated p-value difference and its number in the same review hit.
+                                r"\bp\s*-?\s*values?\s+(?:differences?(?:\s*(?:<=|>=|=|<|>|\bof\b|\bwas\b|"
+                                r"\bis\b|:)\s*" + _NUM + r")?|differ\w*|diverg\w*)\b|"
                                 # "p dropped from 0.04 to 0.01": a change in p, not an effect's direction
                                 r"\bp(?:\s*-?\s*values?)?\s+(?:dropped|fell|decreased|declined|rose|increased|"
                                 r"went\s+(?:up|down)|changed|moved|shrank|grew)\b"
@@ -548,8 +553,9 @@ _BOTH_TESTS = re.compile(r"\b(?:equivalence|minim(?:al|um)[- ]effects?) (?:and|o
                          r"(?:tests?|testing|analys[ie]s)\b")
 _SEGMENT_BREAK = re.compile(r"[,;()\[\]]|\.(?!\d)")
 _CLAUSE_BREAK = re.compile(r";|\.(?!\d)|\b(?:but|whereas|while|although|however)\b")
-# Segments for scoping a negation: commas, semicolons, sentence ends and conjunctions.
-_SEGMENT = re.compile(r"[,;]|\.(?!\d)|\b(?:and|but|while|whereas|although|so|yet|however)\b")
+# Segments for scoping a negation: commas, semicolons, standalone dashes,
+# sentence ends and conjunctions. Normalized em dashes are standalone dashes.
+_SEGMENT = re.compile(r"[,;]|\.(?!\d)|(?<!\S)-(?!\S)|\b(?:and|but|while|whereas|although|so|yet|however)\b")
 
 
 def _bounded(text: str, start: int, end: int, breaks) -> str:
@@ -887,6 +893,12 @@ def _percentage_points(original: str, ctx: Context) -> Optional[str]:
     if not re.search(_PP, original):
         return None
     units = (ctx.units or "").lower()
+    normalized = unicodedata.normalize("NFKC", units)
+    if (re.search(_LOG_TOKEN, normalized) or re.search(_LOGIT_TOKEN, normalized)
+            or re.search(r"\b(?:odds|risk|rate|hazard)[- ]+ratio\b", normalized)):
+        # A log or ratio is not a difference of proportions, even if its
+        # label contains "risk" or "rate". Never convert points against it.
+        return "unknown_units"
     if re.search(r"percent|point|%", units):
         return None  # the result is already on a percentage scale
     ev = ctx.evidence
@@ -1220,14 +1232,65 @@ _RATIO_QUANTITY = (("odds", r"\bodds\b"), ("hazard", r"\bhazards?\b"),
                    ("rate", r"\b(?:rates?|incidence)\b"),
                    ("risk", r"\b(?:risks?|probabilit(?:y|ies)|chances?|likelihood)\b"))
 
+_LOG_TOKEN = r"(?<!\w)(?:logarithm(?:ic|s)?|logit|log|ln)(?![^\W\d_])"
+_LOGIT_TOKEN = r"(?<!\w)logit(?:s)?(?:_(?:p|probability)|p|probability)?(?!\w)"
+
+
+def _uncertain_log_base(units: str) -> bool:
+    """Spot explicit non-natural or ambiguous bases, without treating 'blog' as 'log'.
+
+    Bare log/logit/ln retains the existing natural-log convention. Other spellings
+    can name a base explicitly; do not use exp() or a baseline on those unless the
+    indication is unambiguously natural. This is a safety guard, not a general
+    parser for arbitrary unit descriptions.
+    """
+    u = unicodedata.normalize("NFKC", units).lower()
+    tokens = list(re.finditer(_LOG_TOKEN, u))
+    if not tokens:
+        # 'lg' and 'lb' can denote logarithms, but 'lb' alone may mean pounds.
+        return bool(re.search(r"\b(?:lg|lb)\b", u) and re.search(r"\bratio\b", u))
+
+    # The word 'base' can appear before or after the log and the quantity. An
+    # unknown, omitted, contradictory, or non-e base is not safe to interpret.
+    for base in re.finditer(r"(?<!\w)base(?![^\W\d_])", u):
+        tail = u[base.end():]
+        natural = re.match(r"[\s:=_\-]*(?:[({]\s*)?(?:e|natural)\b", tail)
+        if not natural or re.match(r"\s*[(\[]?\s*(?:or|and|vs\.?|/)\s*\w", tail[natural.end():]):
+            return True
+    if (re.search(r"\b(?:binary|decimal|common|arbitrary|unknown|unspecified|non[- ]natural)\s+" + _LOG_TOKEN, u)
+            or re.search(_LOG_TOKEN + r"\s+(?:binary|decimal|common|arbitrary|unknown|unspecified)\b", u)
+            or re.search(r"\bnon[- ]natural\b", u)):
+        return True
+    if (re.search(r"[({\[]\s*(?:binary|decimal|common|arbitrary|unknown|unspecified|non[- ]natural)\s*[)}\]]", u)
+            or re.search(r"\bbits?\b", u)):
+        return True
+
+    for token in tokens:
+        tail = u[token.end():]
+        # log_2, log_{2}, log_b, log^2; even a malformed subscript is ambiguous.
+        # In logit_p / logit_probability, the suffix identifies the argument,
+        # not a logarithm base. Explicit "base 2" is handled above.
+        logit_argument = token.group() == "logit" and re.match(r"_(?:p|probability)\b", tail)
+        if re.match(r"\s*[_^]", tail) and not logit_argument:
+            subscript = re.match(r"\s*_\s*(?:\{\s*)?(e)\b", tail)
+            if not subscript:
+                return True
+        # log2, log 2, log-10, log(2), including Unicode subscripts after NFKC.
+        if re.match(r"[\s-]*(?:[({\[]\s*)?\d", tail):
+            return True
+        if re.match(r"\s+(?:[({\[]\s*)?[a-df-z](?:\s*[)}\]])?(?=\s+(?:odds|risk|rate|hazard|ratio)\b)", tail):
+            return True
+    return False
+
 
 def _ratio_scale(units: str) -> Optional[str]:
     """The ratio quantity a log-scale result measures, from its declared units."""
     u = units.lower()
-    if not re.search(r"\blog\b|\blog[- ]|logit|\bln\b", u):
+    logit = bool(re.search(_LOGIT_TOKEN, u))
+    if not logit and not re.search(r"\blog\b|\blog[- ]|\bln\b", u):
         return None
     for name, pat in _RATIO_QUANTITY:
-        if re.search(pat, u) or (name == "odds" and "logit" in u):
+        if re.search(pat, u) or (name == "odds" and logit):
             return name
     return "unknown"
 
@@ -1252,6 +1315,9 @@ def _judge_factor(f: Optional[float], written: str, ctx: Context, clause: str = 
         return CHECK, f"'{written}' was read as a ratio, but statwarrant could not tell which factor it states."
     if re.search(r"\b(?:not|no|never|without|neither|nor)\b|n't\b", clause):
         return CHECK, f"'{written}' is negated or qualified; statwarrant does not check negated ratio claims."
+    if _uncertain_log_base(ctx.units or ""):
+        return CHECK, (f"'{written}' states a ratio, but the logarithm base in the declared units "
+                       f"({ctx.units}) is non-natural or unclear. Check the factor and its scale by hand.")
     named = [name for name, pat in _RATIO_QUANTITY if re.search(pat, clause)]
     scale = _ratio_scale(ctx.units or "")
     order = "statwarrant does not verify which group is the numerator, so check the order by hand"
@@ -1270,6 +1336,9 @@ def _judge_factor(f: Optional[float], written: str, ctx: Context, clause: str = 
             return CHECK, f"A factor of {fmt(f)} matches the estimate ({text}), but {order}."
         return CHECK, (f"A factor of {fmt(f)} is not the estimate: {text}; {order}. Report the estimate and "
                        f"interval instead of a single factor.")
+    if re.search(_LOG_TOKEN, unicodedata.normalize("NFKC", ctx.units or "").lower()):
+        return CHECK, (f"'{written}' states a ratio, but the declared log-scale units ({ctx.units}) could not be "
+                       "matched to a supported ratio scale. Check the factor by hand.")
     if ctx.baseline and named and named[0] in ("rate", "risk"):
         b = ctx.baseline
         rel = ev.estimate / b

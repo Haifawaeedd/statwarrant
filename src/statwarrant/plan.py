@@ -22,8 +22,9 @@ from typing import Optional, Sequence, Tuple, Union
 from . import adapters
 from ._core import MIN_ALPHA, POLICIES, Evidence, Thresholds, evaluate, level_text
 from ._precision import checked_float
+from ._ratio_display import ratio_scale_note
 from ._version import __version__
-from .claims import CheckResult, Claims, Context, build_claims, check_sentence, fmt, fmt_bound, fmt_bounds, fmt_ci, fmt_p
+from .claims import CheckResult, Claims, Context, _uncertain_log_base, build_claims, check_sentence, fmt, fmt_bound, fmt_bounds, fmt_ci, fmt_p
 from .design import DesignTable, design_table
 
 # An estimate given with an interval may differ from the interval's midpoint by
@@ -123,17 +124,19 @@ class Plan:
         Give exactly one of: a fitted result (scipy t-test, or statsmodels with
         ``term=``); ``estimate`` and ``se``; or ``ci`` (optionally with ``estimate``).
 
-        With ``ci``, the interval must be symmetric (a Wald-type interval). An
-        ``estimate`` given alongside it is checked against the midpoint and must
-        agree up to rounding; the midpoint is then used, so the published interval
-        is reproduced exactly. Asymmetric intervals (odds, risk or hazard ratios,
-        bootstrap intervals) are refused: give log-scale numbers, or ``estimate``
-        and ``se``.
+        With ``ci``, a symmetric Wald-type interval is assumed. An ``estimate``
+        given alongside it is checked against the midpoint using a symmetry and
+        rounding heuristic, and the midpoint is used for the analysis. The input
+        interval is reconstructed at ``ci_level`` up to numerical precision; the
+        displayed interval is recalculated at ``1 - alpha``, which may differ.
+        Intervals that fail the symmetry check are refused: give ``estimate`` and
+        ``se`` instead if the Wald assumption is appropriate.
 
         With ``ratio=True``, ``estimate`` and ``ci`` are a published odds, risk, rate or
         hazard ratio and its interval, as printed; statwarrant analyses them on the log
-        scale. The symmetry check then allows for the rounding of the printed digits
-        (inferred from the numbers as given), as it does on the linear scale.
+        scale. The symmetry check uses a common-precision rounding heuristic, as it
+        does on the linear scale. Float inputs cannot establish the actual printed
+        precision of each value or whether rounding caused a discrepancy.
 
         ``baseline`` is the reference level of the outcome, used to report the
         absolute and the relative change side by side. ``label`` names this
@@ -155,23 +158,28 @@ class Plan:
             lo = checked_float(ci[0], "ci lower bound")
             hi = checked_float(ci[1], "ci upper bound")
         rounding = 0.0
-        if baseline is not None and (ratio or _log_scale(self.units)):
-            raise ValueError(
-                "a baseline cannot be combined with a ratio or a log-scale result: the result is already relative "
-                "(a ratio of 0.83 is a change of -17%), and dividing its log by a baseline would give a meaningless "
-                "relative change. Omit baseline=; with ratio=True statwarrant reports the change on the ratio scale.")
+        rounding_places = None
+        _check_baseline_scale(baseline, self.units, ratio=ratio)
         if ratio:
+            if self.units and _uncertain_log_base(self.units):
+                raise ValueError(
+                    "ratio=True analyses ratios using the natural logarithm, but the declared units "
+                    "specify a non-natural or unclear log base. Use natural-log units and convert any "
+                    "SESOI to that scale, or analyse the estimate and interval on the intended scale directly.")
             if ci is None or result is not None:
                 raise ValueError("ratio=True needs ci=(lower, upper) on the ratio scale (optionally with estimate=)")
             values = [lo, hi] + ([est_input] if est_input is not None else [])
             if not all(math.isfinite(v) and v > 0 for v in values):
                 raise ValueError("ratios and their interval must be finite and positive")
-            # rounding of the printed digits (all three printed to the same precision), on the log scale
+            # Preserve the common-precision heuristic used by the acceptance check.
+            # It is not evidence of the actual precision in the source.
+            rounding_places = _assumed_decimal_places(*values)
             unit = _half_unit(*values)
             rounding = sum(unit / v for v in values[2:]) + (unit / lo + unit / hi) / 2
             lo, hi = math.log(lo), math.log(hi)
             est_input = None if est_input is None else math.log(est_input)
         elif ci is not None and est_input is not None:
+            rounding_places = _assumed_decimal_places(est_input, lo, hi)
             rounding = 2 * _half_unit(est_input, lo, hi)
 
         null = 0.0
@@ -193,33 +201,65 @@ class Plan:
             if estimate is not None:
                 gap = abs(est_input - mid)
                 half = (hi - lo) / 2
+                if rounding_places is None:
+                    assumption = ("the existing check uses a zero rounding allowance when a float representation "
+                                  "uses scientific notation")
+                else:
+                    place = "place" if rounding_places == 1 else "places"
+                    assumption = (f"the existing check assumes a common precision of {rounding_places} decimal "
+                                  f"{place} based on the float representations")
                 if not math.isfinite(est_input) or gap > SYMMETRY_TOLERANCE * half + rounding:
+                    scale = " on the log scale" if ratio else ""
                     raise ValueError(
                         f"the interval ({fmt(lo)}, {fmt(hi)}) is not symmetric around the estimate {fmt(est_input)} "
-                        f"(midpoint {fmt(mid)}). statwarrant reads intervals as estimate +/- critical value x SE, so an "
-                        f"asymmetric interval would be misread. For ratios (odds, risk, hazard) give the log estimate "
-                        f"and log interval; otherwise pass estimate= and se= directly."
+                        f"(midpoint {fmt(mid)}) under statwarrant's acceptance heuristic{scale}. For this check, "
+                        f"{assumption}, with an assumed rounding allowance of {rounding:.3g}{scale}; "
+                        f"actual printed precision and whether "
+                        f"rounding caused the discrepancy are unknown from floats. statwarrant reads intervals as "
+                        f"estimate +/- critical value x SE, so an asymmetric interval would be misread. Check the "
+                        f"inputs, or pass estimate= and se= directly if the Wald assumption is appropriate."
                     )
-                if gap > 1e-12 * max(1.0, abs(mid)):
-                    shown = (lambda x: f"{math.exp(x):.6g}") if ratio else (lambda x: f"{x:.6g}")
-                    if gap <= rounding:
-                        provenance.append(f"The estimate given ({shown(est_input)}) differs from the interval's "
-                                          f"midpoint ({shown(mid)}) by no more than rounding of the printed numbers "
-                                          f"explains. statwarrant uses the midpoint, so the interval is reproduced.")
+                # Ignore only machine-level differences, not material differences
+                # merely because both numbers happen to be much smaller than one.
+                if gap > 8 * max(math.ulp(est_input), math.ulp(mid)):
+                    scale = " on the log scale" if ratio else ""
+                    position = "is within" if gap <= rounding else "exceeds"
+                    if ratio:
+                        shown_given, shown_mid = _fmt_midpoint_pair(_raw(estimate), math.exp(mid))
+                        log_given, log_mid = _fmt_midpoint_pair(est_input, mid)
+                        given_scale = f"; ratio scale, {log_given} on the log scale"
+                        midpoint_scale = f"; ratio-scale geometric midpoint, {log_mid} on the log scale"
                     else:
-                        scale = " on the log scale" if ratio else ""
-                        provenance.append(
-                            f"The estimate given ({shown(est_input)}) is {gap:.3g}{scale} from the interval's midpoint "
-                            f"({shown(mid)}): more than rounding of the printed numbers explains (up to "
-                            f"{rounding:.3g}), but within the asymmetry statwarrant tolerates "
-                            f"({SYMMETRY_TOLERANCE * half + rounding:.3g}: {SYMMETRY_TOLERANCE:.0%} of the half-width "
-                            f"plus rounding). statwarrant uses the midpoint, so the interval is reproduced and the "
-                            f"estimate given is not; check that the estimate and the interval belong together.")
+                        shown_given, shown_mid = _fmt_midpoint_pair(est_input, mid)
+                        given_scale = midpoint_scale = ""
+                    provenance.append(
+                        f"The estimate given ({shown_given}{given_scale}) differs from the interval's midpoint "
+                        f"({shown_mid}{midpoint_scale}) by {gap:.3g}{scale} (values rounded for display). "
+                        f"Printed precision is unknown: floats "
+                        f"do not preserve trailing zeros or the original notation. For the symmetry check, "
+                        f"{assumption}; the approximate rounding allowance is {rounding:.3g}{scale}, and the gap "
+                        f"{position} it. The gap is within the acceptance limit of "
+                        f"{SYMMETRY_TOLERANCE * half + rounding:.3g}{scale} "
+                        f"({SYMMETRY_TOLERANCE:.0%} of the half-width plus the allowance). Whether rounding "
+                        f"actually explains the difference is unknown. statwarrant uses the midpoint, not the given "
+                        f"estimate; check that the estimate and the interval belong together.")
                     raw["estimate_vs_midpoint"] = {"given": _raw(est_input), "midpoint": _raw(mid),
-                                                   "explained_by_rounding": gap <= rounding}
+                                                   "scale": "log_ratio" if ratio else "input",
+                                                   "explained_by_rounding": None,
+                                                   "within_assumed_rounding_allowance": gap <= rounding,
+                                                   "assumed_rounding_allowance": _raw(rounding),
+                                                   "assumed_decimal_places": rounding_places}
             est = mid
             d = df_input
             source = f"interval ({level_text(ci_level)})" + (", ratio scale, analysed as logs" if ratio else "")
+            same_level = math.isclose(ci_level, 1 - self.alpha, rel_tol=0, abs_tol=1e-15)
+            if "estimate_vs_midpoint" in raw or not same_level:
+                relationship = "the same level as the input" if same_level else "a different level from the input"
+                provenance.append(
+                    f"Under the symmetric Wald assumption, the {level_text(ci_level)} input interval is "
+                    f"reconstructed up to numerical precision. The displayed {level_text(1 - self.alpha)} "
+                    f"interval for the zero test is recalculated at 1 - alpha ({relationship})."
+                )
         else:
             if estimate is None:
                 raise ValueError("estimate= is required together with se=")
@@ -233,11 +273,8 @@ class Plan:
                               f"declared units ({self.units!r}) do not say so. Declare units such as 'log "
                               f"{self.units}' to make reports read correctly.")
         if ratio:
-            lo_r, hi_r = (math.exp(x) for x in res.evidence.zero_interval)
-            mid_r = math.exp(res.evidence.estimate)
-            provenance.append(f"On the ratio scale: {mid_r:.4g} ({level_text(res.evidence.zero_level)} CI {lo_r:.4g} "
-                              f"to {hi_r:.4g}), a relative change of {mid_r - 1:+.1%} ({lo_r - 1:+.1%} to "
-                              f"{hi_r - 1:+.1%}).")
+            provenance.append(ratio_scale_note(res.evidence.estimate, res.evidence.zero_interval,
+                                               res.evidence.zero_level))
         for note in reversed(provenance):
             res.claims.notes.insert(0, note)
         if provenance:
@@ -256,6 +293,7 @@ class Plan:
         """Item-level paired scores, e.g. model A and model B on the same test questions (A - B)."""
         if baseline is not None:
             checked_float(baseline, "baseline")
+        _check_baseline_scale(baseline, self.units)
         est, s, d = adapters.paired(a, b, cluster)
         source = "paired item scores" + (" (cluster-robust SE)" if cluster is not None else "")
         differing = int(np.count_nonzero(adapters.paired_differences(a, b)))
@@ -349,6 +387,29 @@ class Plan:
         return out
 
 
+# This guard recognizes explicit common spellings, not arbitrary free text.
+# Unknown unit labels cannot establish that a result is on a linear scale.
+_BASELINE_LOG_UNITS = re.compile(
+    r"""(?<!\w)(?:
+        logarithm\w*
+      | logit(?:s)?(?:_[a-z0-9_]+|p|probability)?(?!\w)
+      | (?:log|ln)_?(?:10|2|₁₀|₂)(?=$|[^\w]|_|(?:rr|or|hr|irr|fc|foldchange|riskratio|rateratio|oddsratio|hazardratio)(?!\w))
+      | (?:log|ln)_?(?:rr|or|hr|irr|riskratio|rateratio|oddsratio|hazardratio)(?!\w)
+      | (?:log|ln)_(?:risk|rate|odds|hazard)(?:_ratio)?(?!\w)
+      | ln(?!\w)
+      | log(?!\w)(?![-\s]+in\b)
+    )""", re.IGNORECASE | re.VERBOSE)
+
+
+def _check_baseline_scale(baseline, units: Optional[str], *, ratio: bool = False) -> None:
+    if baseline is not None and (ratio or (units and _BASELINE_LOG_UNITS.search(units))):
+        raise ValueError(
+            "a baseline cannot be combined with a ratio or a declared log-scale result: a ratio is already relative, "
+            "but a log-scale value is not necessarily a ratio. Dividing a transformed estimate by a baseline does "
+            "not generally give a valid relative change on the original scale. Omit baseline=; with ratio=True "
+            "statwarrant reports the change on the ratio scale.")
+
+
 def _log_scale(units: Optional[str]) -> bool:
     """Units declaring a log scale (log-odds, log hazard ratio, logit, ln ...)."""
     return bool(units) and bool(re.search(r"\blog(?:arithm\w*)?\b|\blog[- ]|logit|\bln\b", units.lower()))
@@ -360,18 +421,39 @@ _DESIGNS = {"randomized": "randomised", "rct": "randomised", "randomised control
             "cross sectional": "observational", "observational study": "observational"}
 
 
-def _half_unit(*xs: float) -> float:
-    """Half a unit in the last printed decimal, assuming the numbers were printed to the same
-    precision: the most decimals among them as written (0.83, 0.75, 0.93 -> 0.005; 4.2, 1.0,
-    7.4 -> 0.05, since 1.0 cannot be told from 1)."""
+def _assumed_decimal_places(*xs: float) -> Optional[int]:
+    """Common decimal places for the existing heuristic, or None for scientific reprs.
+
+    Float representations do not reveal the actual printed precision or notation.
+    """
     decimals = 0
     for x in xs:
         text = repr(float(x))
         if "e" in text or "E" in text:
-            return 0.0
+            return None
         if "." in text:
             decimals = max(decimals, len(text.split(".")[1].rstrip("0")))
-    return 0.5 * 10.0 ** -decimals
+    return decimals
+
+
+def _half_unit(*xs: float) -> float:
+    """Half a decimal unit under the existing common-precision acceptance heuristic.
+
+    This heuristic returns zero for scientific float representations; it cannot
+    determine the source's printed precision, and must not be treated as evidence
+    of why an estimate differs from an interval midpoint.
+    """
+    decimals = _assumed_decimal_places(*xs)
+    return 0.0 if decimals is None else 0.5 * 10.0 ** -decimals
+
+
+def _fmt_midpoint_pair(given: float, midpoint: float) -> Tuple[str, str]:
+    """Keep close, distinct values distinct in the substitution note."""
+    for precision in range(6, 18):
+        a, b = format(given, f".{precision}g"), format(midpoint, f".{precision}g")
+        if a != b or given == midpoint:
+            break
+    return a, b
 
 
 def declare(

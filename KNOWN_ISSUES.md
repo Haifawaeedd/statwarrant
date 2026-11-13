@@ -4,25 +4,41 @@ These are known, unresolved issues. The examples are targeted checks, not estima
 of how often errors occur. Use statwarrant as an aid, not an automated validator;
 independently check calculations and the full text of research claims.
 
-## Review of the 0.5.0 release candidate — changed, not yet re-reviewed
+## Review of the 0.5.0 release candidate
 
 A review of the release candidate (draft pull request #1, commit `a5269d0`) reproduced the
 four cases below while all tests passed. Changes have regression tests in
-`tests/test_review_release_050.py`; they have not been reviewed again.
+`tests/test_review_release_050.py`. A subsequent review of `c237c3d` found additional
+edge cases; the follow-up changes have targeted tests in `tests/test_safety_*_050.py`.
+These examples are not an estimate of accuracy on new data or sentences.
 
 * **Relative change of a ratio.** `analyze(estimate=0.83, ci=(0.75, 0.93), ratio=True,
   baseline=0.2)` reported a relative change of about -90%: the log of the ratio was divided
-  by the baseline. A baseline is now refused with a ratio or with units that name a log
-  scale (`log ...`, `logit`, `ln`), and `ratio=True` reports the ratio and its relative
-  change (-16.5%, 95% CI -25.0% to -7.0%). A log-scale result passed as `estimate=`/`se=`
-  with units that do not say "log" is not detected; name the scale in `units`.
+  by the baseline. A baseline is refused with `ratio=True` or recognized log-scale units
+  in both `analyze()` and `analyze_paired()`; common `log2`, `log10`, `lnRR` and `logit`
+  labels are included. Free-text detection is partial: an unrecognized or unstated
+  transformed scale can still be treated as linear. The original ratio 0.83 corresponds
+  to -17%; the -16.5% previously shown is for its reconstructed geometric midpoint
+  (about 0.8352), not for the number 0.83. The ratio quantity and order matter.
 * **Estimate and midpoint.** `analyze(estimate=4.4, ci=(1.0, 7.4))` used the midpoint 4.2
-  and said rounding explained the difference; rounding explains at most 0.1. The note now
-  says so only when it is true, and otherwise gives the gap and the tolerance and asks the
-  user to check that the estimate and interval belong together
-  (`raw_input["estimate_vs_midpoint"]` records both values). The tolerance itself (5% of
-  the half-width plus rounding) is unchanged; a stricter check would refuse some published
-  intervals computed on another scale.
+  and said rounding explained the difference. The symmetry check still assumes a common
+  decimal precision when estimating its rounding allowance: here the assumed allowance is
+  0.1 and the gap is 0.2, but floats do not reveal the actual precision of each printed
+  number or why they differ. The note states those assumptions and requests review.
+  `raw_input["estimate_vs_midpoint"]` records the two analysis-scale values, their scale,
+  the assumed allowance and a conditional comparison. Its `explained_by_rounding` value is
+  now `null`/`None`, not a Boolean: code consuming that field should be updated.
+  The acceptance tolerance itself (5% of the half-width plus the allowance) is unchanged;
+  scientific-notation float representations still get a zero allowance in this heuristic
+  and may be rejected even if a different printed precision could explain the discrepancy.
+* **Ratio display and numerical range.** Small changes and close CI limits need extra
+  displayed digits; if the transformed ratio or percentage cannot be represented safely,
+  the ratio summary is omitted with a note and the evidence remains on the log scale.
+  A displayed CI is calculated at `1 - alpha`; this need not equal the input CI level.
+  `ratio=True` analyses on the natural-log scale and refuses known non-natural or unclear
+  bases in the units; the unit name is free text, so unknown spellings can be missed.
+  The linter requests review of ratio-factor claims with recognized non-natural or unclear
+  bases, and will not convert percentage points directly against recognized log/ratio units.
 * **Difference between p-values.** `The difference in p-values was 0.0111.` was read as a
   p-value equal to the result's. Differences, changes, gaps and comparisons between
   p-values, "the p-values differed" and "p dropped from 0.04 to 0.01" now get `check`
@@ -99,7 +115,8 @@ wording, so this mainly measures noise on real text.
 * **p-values from rounded intervals.** Recomputed from the printed interval, 3 of 7
   published two-sided p-values differ at their printed precision (for example 0.727
   against 0.69). statwarrant does not compare a sentence's p-value with tolerance for
-  this rounding; treat such differences as rounding unless they are large.
+  this rounding. Do not assume rounding is the cause; check the original analysis,
+  model, confidence level and precision.
 
 ## Third user trial (new data, sentences frozen before checking)
 
@@ -125,8 +142,10 @@ very wide uncertainty.
   same amount." and "Home ownership was unrelated to credit-card spending." were not
   recognised at all (`no_supported_pattern`). "Neither a difference nor equivalence
   could be shown." got a false `conflict`.
-* **On this integration branch:** 11 of 13 and 7 of 11 (all `check`, no `conflict`).
-  The rules that changed these numbers were written before the sentences, but by the same
+* **On the earlier integration branch:** 11 of 13 and 7 of 11 (all `check`, no `conflict`).
+  A later replay on `c237c3d` found 11 of 13 problem sentences with some warning and
+  6 of 11 acceptable sentences with `check`, none with `conflict`; one sentence formerly
+  warned about was no longer recognized. The rules were written by the same
   author, so the improvement is optimistic. The remaining `check` warnings on acceptable
   sentences come from comparisons that cannot be tied to the declared contrast, numbers
   whose role is unknown (group accuracies, item counts, ratio-scale values) and
@@ -146,7 +165,8 @@ remaining cases below. This is not independent human validation.
 * **Percentage points.** Conversion happens only when the declared units are a
   proportion (`accuracy`, `proportion`, `rate`, `probability`, `recall`, `AUC` and
   similar) and only for numbers attached to "percentage points" (or an interval in the
-  parenthesis right after them). For other units, such as metres or log-odds, those
+  parenthesis right after them). For other units, such as metres or recognized log/ratio
+  scales, those
   numbers get `check`. Other numbers in the sentence are read as written; one that fits
   only after conversion gets `check`, not `conflict`.
 * **Hidden directions.** A negation excuses direction words only in its own clause:

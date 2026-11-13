@@ -61,25 +61,28 @@ def test_ratio_with_units_that_do_not_say_log_gets_a_note():
 
 def test_review_case_2_note_does_not_claim_rounding():
     res = sw.declare(units="points").analyze(estimate=4.4, ci=(1.0, 7.4))
-    (note,) = res.raw_input["provenance_notes"]
+    note = res.raw_input["provenance_notes"][0]
     assert "no more than rounding" not in note
-    assert "more than rounding of the printed numbers explains" in note
+    assert "gap exceeds" in note and "assumes a common precision" in note
     assert "4.4" in note and "4.2" in note and "0.2" in note
     assert "check that the estimate and the interval belong together" in note
-    assert res.raw_input["estimate_vs_midpoint"] == {"given": 4.4, "midpoint": pytest.approx(4.2),
-                                                     "explained_by_rounding": False}
+    info = res.raw_input["estimate_vs_midpoint"]
+    assert info["given"] == 4.4 and info["midpoint"] == pytest.approx(4.2)
+    assert info["explained_by_rounding"] is None
+    assert info["within_assumed_rounding_allowance"] is False
     assert res.evidence.estimate == pytest.approx(4.2)
 
 
 @pytest.mark.parametrize("estimate", [4.2, 4.3])
-def test_estimate_within_rounding_keeps_the_rounding_note(estimate):
+def test_estimate_within_assumed_allowance_gets_a_caveated_note(estimate):
     res = sw.declare(units="points").analyze(estimate=estimate, ci=(1.0, 7.4))
     notes = res.raw_input.get("provenance_notes", [])
     if estimate == 4.2:
         assert notes == [] and "estimate_vs_midpoint" not in res.raw_input
     else:
-        assert len(notes) == 1 and "no more than rounding" in notes[0]
-        assert res.raw_input["estimate_vs_midpoint"]["explained_by_rounding"] is True
+        assert "gap is within" in notes[0] and "actually explains the difference is unknown" in notes[0]
+        assert res.raw_input["estimate_vs_midpoint"]["explained_by_rounding"] is None
+        assert res.raw_input["estimate_vs_midpoint"]["within_assumed_rounding_allowance"] is True
 
 
 def test_estimate_far_from_the_midpoint_is_still_refused():

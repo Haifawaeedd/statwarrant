@@ -16,9 +16,9 @@ importance, and it can flag common misreadings in a sentence you are about to wr
 > reporting, not as a validator, and check its output. Reports of wrong results are very welcome.
 
 > **0.5.0 — public trial.** Please try it on your own results and tell us where it is
-> wrong. The sentence checker is pattern-based and partial: a **conflict** contradicts the
-> result; **not verified** lists parts it could not check, for you to review; no warning
-> is never an approval. Always check group order, outcome, contrast and the complete
+> wrong. The sentence checker is pattern-based and partial: a **conflict** is an apparent
+> contradiction that can itself be mistaken; **not verified** lists some parts it could
+> not check. No warning is never an approval. Always check group order, outcome, contrast and the complete
 > sentence yourself. See [KNOWN_ISSUES.md](KNOWN_ISSUES.md).
 
 **Try it** in the [quick-start notebook on Colab](https://colab.research.google.com/github/Haifawaeedd/statwarrant/blob/main/examples/quickstart.ipynb)
@@ -109,7 +109,7 @@ result. **Not verified** lists parts it recognised but could not check, for you 
 | Input checks | Adapters check the original statistic and p-value, with limitations for extremely small p-values; see known issues. |
 | Design sensitivity | Power, Type S and exaggeration ratio under assumed effects, with the source of each assumption required. |
 | Scope | The linter can warn about some generalizations; it does not verify the stated scope or catch every overgeneralization. |
-| Absolute and relative | With a `baseline`, both changes are reported side by side. A ratio (`ratio=True`) is reported as a relative change on the ratio scale; a baseline cannot be combined with a ratio or log-scale result. |
+| Absolute and relative | With a `baseline`, both changes are reported side by side. A ratio (`ratio=True`) is reported as a relative change in the quantity compared by the ratio. A baseline is refused for a ratio and recognized log-scale units; free-text units do not guarantee scale detection. |
 | Common inputs | scipy t-test results, statsmodels fits, estimate + SE, a published interval, or paired item scores (e.g. two models on the same test questions, with cluster-robust SE). |
 
 ## Install
@@ -190,18 +190,31 @@ res = plan.analyze(estimate=4.2, ci=(1.0, 7.4), df=58)     # estimate is checked
 res = sw.declare(units="log hazard ratio").analyze(estimate=0.83, ci=(0.75, 0.93), ratio=True)
 ```
 
-Intervals must be symmetric (estimate ± critical value × SE). An asymmetric interval
-is refused instead of being silently symmetrised. Endpoints alone cannot prove that
-the original interval was symmetric: give `estimate=` too when you have it, so the
-check can run. An interval far from zero relative to its width (say 10^14 ± 0.3) is
-refused, because its width cannot be recovered accurately; give `estimate=` and `se=`. For ratios (odds, risk, rate, hazard), pass the printed
-numbers with `ratio=True`, or give log-scale numbers; the symmetry check allows for the
-rounding of the printed digits. A small gap between the estimate and the midpoint is
-tolerated (5% of the half-width plus rounding); statwarrant then uses the midpoint and
-says whether rounding explains the gap. With `ratio=True` the report adds the ratio and
-the relative change with its interval (`0.83 (0.75 to 0.93)` is -16.5%, -25.0% to
--7.0%); `baseline=` is refused for ratios and log-scale units, because the result is
-already relative. For bootstrap or other asymmetric intervals, give `estimate=` and `se=`.
+Intervals are treated as symmetric (estimate ± critical value × SE). An interval that
+fails the symmetry check is refused. Endpoints alone cannot prove that the original
+interval was symmetric: give `estimate=` too when you have it. An interval far from zero
+relative to its width (say 10^14 ± 0.3) is refused because its width cannot be recovered
+accurately; give `estimate=` and `se=`. For ratios (odds, risk, rate, hazard), pass the
+printed numbers with `ratio=True`, or give log-scale numbers.
+
+The symmetry check uses a heuristic that assumes a common printed precision. A small gap
+between the estimate and the midpoint is tolerated (5% of the half-width plus an assumed
+rounding allowance); statwarrant uses the midpoint, not the given estimate, and reports
+the assumptions. Floats cannot reveal the original precision or whether rounding caused
+the difference. The input CI is reconstructed at its given level; the displayed interval
+is recalculated at `1 - alpha`, which can be different.
+
+With `ratio=True`, the report adds the reconstructed ratio and relative change when they
+can be safely displayed. For `0.83 (0.75 to 0.93)`, the given ratio 0.83 corresponds to
+-17%; the reconstructed geometric midpoint is about 0.8352, or -16.5% (95% CI -25% to
+-7%, at default settings). Rate, risk, odds and hazard ratios describe different
+quantities; check the comparison and interpretation. `ratio=True` uses the natural
+logarithm: an explicitly non-natural or unclear log base in `units` is refused, and any
+SESOI must be on the natural-log scale. `baseline=` is refused for ratios
+and recognized log-scale units in both `analyze()` and `analyze_paired()`: dividing a
+transformed estimate by a baseline is not generally a valid change on the original scale.
+Unit-name detection is partial. For bootstrap or other asymmetric intervals, give
+`estimate=` and `se=` if the corresponding assumptions are appropriate.
 
 ### Describing the study
 

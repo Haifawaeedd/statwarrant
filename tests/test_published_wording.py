@@ -145,8 +145,9 @@ def test_size_of_the_study_is_not_a_size_claim():
 # ---- adversarial review of the new options ---------------------------------------------
 
 @pytest.mark.parametrize("estimate,accepted", [(4.2, True), (4.4, True), (4.5, False), (4.6, False)])
-def test_rounding_allowance_uses_the_common_printed_precision(estimate, accepted):
-    # 1.0 is printed to one decimal like 4.2 and 7.4, so it must not widen the allowance.
+def test_rounding_allowance_uses_the_common_precision_heuristic(estimate, accepted):
+    # Preserve the existing common-precision acceptance heuristic; the actual
+    # printed precision of 1.0 (or the other float inputs) is not recoverable.
     plan = sw.declare()
     if accepted:
         plan.analyze(estimate=estimate, ci=(1.0, 7.4))

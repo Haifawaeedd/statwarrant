@@ -41,13 +41,27 @@ published studies. The sentence checker remains experimental (see KNOWN_ISSUES.m
   aliases (RCT, cohort, ...); `VALIDATION.md` and `examples/published_results.py`.
 * After review of the release candidate (draft pull request #1): `baseline=` is refused
   for ratios and log-scale units (it gave a relative change of about -90% for a risk
-  ratio of 0.83 instead of -16.5%), and `ratio=True` reports the ratio and the relative
-  change with its interval; the note on an estimate that differs from the interval's
-  midpoint says rounding explains it only when it does, and gives the gap otherwise;
+  ratio of 0.83; the reconstructed geometric midpoint 0.8352 implies about -16.5%),
+  and `ratio=True` reports the ratio and the relative change with its interval when
+  safely representable; the note on an estimate that differs from the interval's
+  midpoint gives the gap and the assumptions used by the rounding heuristic;
   "the difference in p-values was 0.01" and "the p-values differed" get a check instead
   of being read as one p-value; a size qualifier after "neither equivalence nor an effect"
   stops at a conjunction or verb, so later claims ("and prove the treatment caused harm
   for everyone") are checked one by one.
+* After follow-up review of `c237c3d`: the baseline guard also covers `analyze_paired()`
+  and common log2/log10/lnRR labels. Ratio-scale display uses adaptive precision and
+  safely omits unrepresentable conversions rather than crashing or printing infinity.
+  Float inputs cannot establish printed precision or the reason for a midpoint gap;
+  `raw_input["estimate_vs_midpoint"]["explained_by_rounding"]` is now `None` rather
+  than a Boolean, with the assumed allowance recorded separately. The input CI level
+  is distinguished from the displayed test CI level. `ratio=True` rejects explicit
+  non-natural or ambiguous log bases; the linter requests review for factor claims on
+  such bases and avoids converting percentage points against recognized log/ratio
+  units. Numeric p-value differences request review instead of being compared with an
+  effect CI; selected coordinated-negation patterns stop at standalone/em dashes so
+  subsequent claims are not consumed. Unit-name recognition, natural-language parsing
+  and floating-point representations remain limited; see `KNOWN_ISSUES.md`.
 * Public-trial files: Colab quick-start notebook, an issue form for sentences the
   checker gets wrong, CI on macOS and Windows, a manually started and approved release
   workflow (TestPyPI or PyPI), `SECURITY.md`, `CODE_OF_CONDUCT.md`, and an AI-use
