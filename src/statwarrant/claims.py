@@ -171,10 +171,25 @@ class CheckResult:
             return "warnings"
         return "no_warnings" if self.parts else "no_supported_pattern"
 
+    @property
+    def conflicts(self) -> Tuple[Part, ...]:
+        """Parts that contradict the result."""
+        return tuple(p for p in self.parts if p.status == CONFLICT)
+
+    @property
+    def to_verify(self) -> Tuple[Part, ...]:
+        """Parts statwarrant recognised but could not verify; check them by hand."""
+        return tuple(p for p in self.parts if p.status == CHECK)
+
     def __str__(self) -> str:
-        n = len(self.warnings)
-        tag = {"warnings": f"{n} warning{'s' if n != 1 else ''}", "no_warnings": "no warnings",
-               "no_supported_pattern": "no supported pattern detected"}[self.status]
+        conflicts, verify = self.conflicts, self.to_verify
+        if self.status == "warnings":
+            bits = [f"{len(conflicts)} conflict{'s' if len(conflicts) != 1 else ''}" if conflicts else "no conflicts"]
+            if verify:
+                bits.append(f"{len(verify)} to verify")
+            tag = ", ".join(bits)
+        else:
+            tag = {"no_warnings": "no warnings", "no_supported_pattern": "no supported pattern detected"}[self.status]
         lines = [f"[{tag}] {self.sentence}"]
         if self.label:
             lines.append(f"  Checked against result: {self.label}")
@@ -182,10 +197,16 @@ class CheckResult:
             lines.append("  " + _NO_PATTERN_NOTE)
             lines.append("  " + _UNIT_NOTE)
             return "\n".join(lines)
-        for p in self.warnings:
-            lines.append(f"  - {p.status:<8} {p.rule:<22} \"{p.text}\": {p.reason}")
-            if p.action:
-                lines.append(f"    Check: {p.action}")
+        if conflicts:
+            lines.append("  Conflicts with the result:")
+            for p in conflicts:
+                lines.append(f"  - {p.rule:<22} \"{p.text}\": {p.reason}")
+                if p.action:
+                    lines.append(f"    Check: {p.action}")
+        if verify:
+            lines.append("  Not verified (statwarrant could not check these; review them by hand):")
+            for p in verify:
+                lines.append(f"  - {p.rule:<22} \"{p.text}\": {p.reason}")
         ok = [p for p in self.parts if p.status == CONSISTENT]
         if ok:
             lines.append("  Consistent with the result: " + "; ".join(f"\"{p.text}\" ({p.rule})" for p in ok) + ".")
@@ -194,6 +215,9 @@ class CheckResult:
         lines.append("  " + _UNIT_NOTE)
         if self.status == "no_warnings":
             lines.append("  No warning is not a clearance: only the recognised parts were checked.")
+        elif not conflicts:
+            lines.append("  Nothing here conflicts with the result, but the parts listed were not verified; this is "
+                         "not a clearance. A warning is a prompt for review, not proof that the sentence is false.")
         else:
             lines.append("  A warning is a prompt for review, not proof that the sentence is false.")
         return "\n".join(lines)
@@ -205,6 +229,8 @@ class CheckResult:
             "status": self.status,
             "level": self.level,
             "warnings": [p.to_dict() for p in self.warnings],
+            "conflicts": [p.to_dict() for p in self.conflicts],
+            "to_verify": [p.to_dict() for p in self.to_verify],
             "consistent": [p.to_dict() for p in self.parts if p.status == CONSISTENT],
             "unchecked": list(self.unchecked),
             "unit_check_note": _UNIT_NOTE,
