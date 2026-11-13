@@ -527,11 +527,11 @@ class Result:
                        "established at the declared significance level.")
         else:
             out.append(f"- An effect larger than ±d is established for every threshold d below "
-                       f"**{fmt_down(th.met_below)}{u}** ({level_text(th.met_level)} interval; cut-off ≈ "
+                       f"**{fmt_down(th.met_below)}{u}** ({level_text(th.met_level)} interval; cut-off about "
                        f"{th.met_below:.6g}).")
         out.append(f"- Equivalence within ±d is established for every threshold d above "
                    f"**{fmt_up(th.equivalence_above)}{u}** ({level_text(th.equivalence_level)} interval; "
-                   f"cut-off ≈ {th.equivalence_above:.6g}).")
+                   f"cut-off about {th.equivalence_above:.6g}).")
         if th.met_below is not None:
             out.append(f"- For thresholds from {th.met_below!r} to {th.equivalence_above!r} (the exact cut-offs, "
                        f"both included), neither is established.")
