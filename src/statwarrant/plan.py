@@ -99,6 +99,8 @@ class Plan:
     outcome: Optional[str] = None
     contrast: Optional[str] = None
     registration: Optional[str] = None
+    design: Optional[str] = None
+    subgroup: Optional[str] = None
 
     # ------------------------------------------------------------------ #
     def analyze(
@@ -113,6 +115,7 @@ class Plan:
         ci_level: float = 0.95,
         baseline: Optional[Number] = None,
         label: Optional[str] = None,
+        ratio: bool = False,
     ) -> "Result":
         """Interpret one effect.
 
@@ -125,6 +128,11 @@ class Plan:
         is reproduced exactly. Asymmetric intervals (odds, risk or hazard ratios,
         bootstrap intervals) are refused: give log-scale numbers, or ``estimate``
         and ``se``.
+
+        With ``ratio=True``, ``estimate`` and ``ci`` are a published odds, risk, rate or
+        hazard ratio and its interval, as printed; statwarrant analyses them on the log
+        scale. The symmetry check then allows for the rounding of the printed digits
+        (inferred from the numbers as given), as it does on the linear scale.
 
         ``baseline`` is the reference level of the outcome, used to report the
         absolute and the relative change side by side. ``label`` names this
@@ -145,12 +153,26 @@ class Plan:
         if ci is not None:
             lo = checked_float(ci[0], "ci lower bound")
             hi = checked_float(ci[1], "ci upper bound")
+        rounding = 0.0
+        if ratio:
+            if ci is None or result is not None:
+                raise ValueError("ratio=True needs ci=(lower, upper) on the ratio scale (optionally with estimate=)")
+            values = [lo, hi] + ([est_input] if est_input is not None else [])
+            if not all(math.isfinite(v) and v > 0 for v in values):
+                raise ValueError("ratios and their interval must be finite and positive")
+            # rounding of the printed digits, carried to the log scale
+            rounding = sum(_half_unit(v) / v for v in values[2:]) + (_half_unit(lo) / lo + _half_unit(hi) / hi) / 2
+            lo, hi = math.log(lo), math.log(hi)
+            est_input = None if est_input is None else math.log(est_input)
+        elif ci is not None and est_input is not None:
+            rounding = _half_unit(est_input) + (_half_unit(lo) + _half_unit(hi)) / 2
 
         null = 0.0
         provenance: list = []
         raw = {"estimate": _raw(estimate), "se": _raw(se), "df": _raw(df),
                "ci": None if ci is None else [_raw(ci[0]), _raw(ci[1])],
-               "ci_level": ci_level if ci is not None else None, "baseline": _raw(baseline)}
+               "ci_level": ci_level if ci is not None else None, "baseline": _raw(baseline),
+               **({"ratio_scale_input": True} if ratio else {})}
         if result is not None:
             est, s, d, source, null, provenance = adapters.from_result(result, term)
             if hasattr(result, "params"):  # statsmodels: the statistic and p-value of this term
@@ -164,7 +186,7 @@ class Plan:
             if estimate is not None:
                 gap = abs(est_input - mid)
                 half = (hi - lo) / 2
-                if not math.isfinite(est_input) or gap > SYMMETRY_TOLERANCE * half:
+                if not math.isfinite(est_input) or gap > SYMMETRY_TOLERANCE * half + rounding:
                     raise ValueError(
                         f"the interval ({fmt(lo)}, {fmt(hi)}) is not symmetric around the estimate {fmt(est_input)} "
                         f"(midpoint {fmt(mid)}). statwarrant reads intervals as estimate +/- critical value x SE, so an "
@@ -173,7 +195,7 @@ class Plan:
                     )
             est = mid
             d = df_input
-            source = f"interval ({level_text(ci_level)})"
+            source = f"interval ({level_text(ci_level)})" + (", ratio scale, analysed as logs" if ratio else "")
         else:
             if estimate is None:
                 raise ValueError("estimate= is required together with se=")
@@ -231,7 +253,7 @@ class Plan:
         # necessarily the sign of the original named group contrast.
         comparison_origin_is_zero = null == 0.0 and not source.startswith("scipy:")
         ctx = Context(ev, self.units, self.scope, self.better, baseline, self.outcome,
-                      self.contrast, comparison_origin_is_zero)
+                      self.contrast, comparison_origin_is_zero, design=self.design, subgroup=self.subgroup)
         claims = build_claims(ctx)
         if null is not None and null != 0.0:
             claims.notes.insert(0, f"The effect is the difference from the test's null value {null:.12g} "
@@ -254,6 +276,11 @@ class Plan:
         if version >= 2:
             out["outcome"] = self.outcome
             out["contrast"] = self.contrast
+            # added in 0.5.0; hashed only when given, so earlier plans keep their fingerprints
+            if self.design is not None:
+                out["design"] = self.design
+            if self.subgroup is not None:
+                out["subgroup"] = self.subgroup
         return out
 
     def fingerprint_for(self, version: int) -> str:
@@ -288,6 +315,15 @@ class Plan:
         return out
 
 
+def _half_unit(x: float) -> float:
+    """Half a unit in the last printed decimal of x, as written (0.83 -> 0.005, 12.3 -> 0.05)."""
+    text = repr(float(x))
+    if "e" in text or "E" in text:
+        return 0.0
+    decimals = len(text.split(".")[1].rstrip("0")) if "." in text else 0
+    return 0.5 * 10.0 ** -decimals
+
+
 def declare(
     *,
     sesoi: Optional[Union[Number, Tuple[Number, Number]]] = None,
@@ -300,6 +336,8 @@ def declare(
     outcome: Optional[str] = None,
     contrast: Optional[str] = None,
     registration: Optional[str] = None,
+    design: Optional[str] = None,
+    subgroup: Optional[str] = None,
 ) -> Plan:
     """Fix the rules of interpretation before looking at the result.
 
@@ -328,6 +366,13 @@ def declare(
     registration : str, optional
         Where the plan's fingerprint was registered (an OSF link, a commit URL). Not
         part of the fingerprint, so it can be added after registering.
+    design : {"randomised", "observational"}, optional
+        How the compared groups were formed. With "randomised", causal wording about an
+        established average effect is not flagged; with "observational", it is a conflict.
+        Your own description: reported, never verified.
+    subgroup : str, optional
+        When the result is itself a subgroup result ("patients on mechanical
+        ventilation"): sentences naming that subgroup are not flagged as subgroup claims.
     """
     if interval_policy not in POLICIES:
         raise ValueError(f"interval_policy must be one of {POLICIES}")
@@ -335,6 +380,12 @@ def declare(
         raise ValueError("better must be 'higher' or 'lower'")
     if not MIN_ALPHA <= alpha < 0.5:
         raise ValueError(f"alpha must be at least {MIN_ALPHA:g} and below 0.5")
+    if design is not None:
+        design = {"randomized": "randomised"}.get(str(design).strip().lower(), str(design).strip().lower())
+        if design not in ("randomised", "observational"):
+            raise ValueError("design must be 'randomised' or 'observational' (or omitted)")
+    if subgroup is not None and not str(subgroup).strip():
+        raise ValueError("subgroup must be a non-empty description, or omitted")
 
     bounds = None
     if sesoi is not None:
@@ -368,6 +419,8 @@ def declare(
         outcome=outcome,
         contrast=contrast,
         registration=registration,
+        design=design,
+        subgroup=None if subgroup is None else str(subgroup),
     )
 
 

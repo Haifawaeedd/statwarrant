@@ -134,7 +134,12 @@ def test_unverified_large_number_is_blocked():
 
 def test_numbers_that_cannot_be_matched_are_never_allowed():
     res = sw.declare(sesoi=3, sesoi_source="teachers").analyze(estimate=4.2, se=1.6, df=58)
-    assert res.check("Scores increased in 120 students.").level == "check"
+    assert res.check("Scores increased by 120.").level is not None  # an unmatched effect number
+    # Since 0.5.0 a count ("120 students") is not read as an effect: it is listed as not checked,
+    # never marked consistent.
+    out = res.check("Scores increased in 120 students.")
+    assert any("120 students" in u for u in out.unchecked)
+    assert all("120" not in p.text for p in out.parts)
 
 
 # 6. Size adjectives are not the same claim as "exceeds the SESOI".

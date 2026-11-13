@@ -249,6 +249,8 @@ class Context:
     outcome: Optional[str] = None
     contrast: Optional[str] = None
     comparison_origin_is_zero: bool = True
+    design: Optional[str] = None
+    subgroup: Optional[str] = None
 
     def u(self, x: float) -> str:
         return f"{fmt(x)} {self.units}" if self.units else fmt(x)
@@ -763,6 +765,8 @@ def _scan(sentence: str, ctx: Context):
     # Numbers first, so "95% CI" is not read as a percentage change.
     for name, pat in _NUMBER_PATTERNS:
         for m in list(pat.finditer(text)):
+            if name == "percentage" and _DESCRIPTIVE_SHARE.search(original[:m.start()]):
+                continue  # "421 patients (27.0%)": a group's share, not an effect; left unchecked
             if name != "_skip":
                 # context: the words before the match and inside it, up to its first number
                 first = min((m.start(i) for i in range(1, (m.lastindex or 0) + 1) if m.group(i) is not None),
@@ -783,12 +787,20 @@ def _scan(sentence: str, ctx: Context):
                              {"groups": list(m.groups()), "units": True}))
             blank(m.start(), m.end())
     for m in list(re.finditer(r"(?<![a-z_])" + _NUM, text)):
+        if _descriptive_count(original, m.start(), m.end(), ctx) or (
+                _DESCRIPTIVE_SHARE.search(original[:m.start()]) and original[m.end():m.end() + 2].strip().startswith("%")):
+            continue  # "28 days", "421 patients": a time or a count, not an effect; left unchecked
         hits.append(_Hit("number", m.group(0), m.start(), m.end(),
                          {"context": original[max(0, m.start() - 60):m.start()]}))
         blank(m.start(), m.end())
     for m in list(re.finditer("%", text)):
         blank(m.start(), m.end())
 
+    # "does not prove ...": a caution, which also uses up its negation
+    for m in list(_CAUTION_SPAN.finditer(text)):
+        hits.append(_Hit("caution", m.group(0).strip(), m.start(), m.end(),
+                         {"orig": _span(sentence, idx, m.start(), m.end())[0]}))
+        blank(m.start(), m.end())
     # Neither equivalence nor an effect is not a no-effect or positive-equivalence
     # claim. Request review instead of asserting that the clause is verified.
     for m in _NEITHER_EQUIVALENCE.finditer(original):
@@ -948,6 +960,43 @@ def _topic(phrase: str) -> List[str]:
     return t
 
 
+# "does not prove", "cannot imply", "whether ... causal": a caution, not a claim. ("Did not show
+# a difference" is an evidence statement, judged elsewhere, so show/establish are not included.)
+_CAUTION_SPAN = re.compile(r"\b(?:not|cannot|never)\s+(?:\w+\s+){0,2}?(?:prove[sdn]?|proof|imply|implies)\b|"
+                           r"n't\s+(?:\w+\s+){0,2}?(?:prove|imply)\b")
+_CAUTION = re.compile(_CAUTION_SPAN.pattern + r"|\bwhether\b[^.;]*\bcaus|\bcaus\w*[^.;]*\bcannot be (?:determined|established)")
+_SUBGROUP_GENERIC = set("""patients patient people participants participant those who were was are is receiving received
+receive taking took given with without among only either group groups subgroup subgroups adults children women men
+the a an of in on for and or not no non any all some""".split())
+
+
+def _subgroup_words(text: str) -> set:
+    return {w for w in re.findall(r"[a-z][a-z-]+", text.lower()) if len(w) > 2 and w not in _SUBGROUP_GENERIC}
+
+
+_COUNT_NOUNS = (r"(?:patients?|participants?|subjects?|people|persons?|individuals?|women|men|children|adults|"
+                r"cases?|deaths?|studies|trials?|centres?|centers?|hospitals?|sites?|items?|questions?|cups?|"
+                r"records?|respondents?|households?|schools?|students?|pupils?|animals?|mice|rats|cells?|samples?)")
+_TIME_NOUNS = r"(?:days?|weeks?|months?|years?|hours?)"
+_DESCRIPTIVE_COUNT = re.compile(r"\s+(" + _COUNT_NOUNS + r")\b")
+_TIME_POINT_BEFORE = re.compile(r"\b(?:at|within|by|after|over|during|for|up to|in|of|until|before)\s*$")
+_TIME_POINT_AFTER = re.compile(r"(?:-\s*" + _TIME_NOUNS.replace("s?", "") + r"\b|\s+" + _TIME_NOUNS + r"\b)")
+_DESCRIPTIVE_SHARE = re.compile(r"\b\d[\d,]*\s+(?:[a-z-]+\s+){0,2}?" + _COUNT_NOUNS + r"\s*\(\s*$")
+
+
+def _descriptive_count(original: str, start: int, end: int, ctx: "Context") -> bool:
+    """A count ("421 patients") or a time point ("at 28 days", "28-day mortality"), not an
+    effect, unless its noun is the declared unit of the effect."""
+    units = (ctx.units or "").lower()
+    m = _DESCRIPTIVE_COUNT.match(original, end)
+    if m:
+        return not (units and m.group(1).rstrip("s") in units)
+    m = _TIME_POINT_AFTER.match(original, end)
+    if m and (original[end:end + 1] == "-" or _TIME_POINT_BEFORE.search(original[:start])):
+        return not units or not any(t in units for t in ("day", "week", "month", "year", "hour"))
+    return False
+
+
 _UNBOUND_PREFIX = "Not checked against the result:"
 _UNBOUND_WHAT = {
     "percentage": "this percentage", "magnitude": "this size", "range": "this interval",
@@ -1075,17 +1124,39 @@ def _judge_hit(h: _Hit, ctx: Context, sign: Optional[int]) -> Tuple[str, str]:
                              f"evidence comes from {where} only.")
         return CONFLICT, f"The evidence comes from {where} only; it does not show the effect holds beyond it."
 
+    if cat == "caution" or (cat in ("certainty", "causal") and _CAUTION.search(h.data.get("clause", "") or h.phrase)):
+        return CONSISTENT, "A caution (the data do not prove or imply this), not a claim."
+
     if cat == "certainty":
         return CONFLICT, (f"Statistics does not prove, and the estimate is uncertain: report the interval "
                          f"({z}), not a single exact value.")
 
     if cat == "causal":
+        if ctx.design == "observational":
+            return CONFLICT, ("Causal wording, but the plan declares an observational design: the result shows an "
+                              "association. (A causal design with stated assumptions would need to be described.)")
+        if ctx.design == "randomised":
+            if ev.differs_from_zero:
+                return CONSISTENT, (f"Randomised design (as declared) and an established average effect ({z}); "
+                                    f"causal wording about that average effect is supported.")
+            return CHECK, (f"Randomised design (as declared), but the effect is not established ({z}); causal "
+                           f"wording overstates it.")
         return CHECK, ("Whether causal wording is warranted depends on the design (randomisation, confounding), "
-                         "which statwarrant does not know.")
+                       "which statwarrant does not know. Declare design='randomised' or 'observational'.")
 
     if cat == "subgroup":
+        if ctx.subgroup:
+            said = _subgroup_words(h.data.get("clause", "") or h.phrase)
+            declared = _subgroup_words(ctx.subgroup)
+            negated = (lambda t: bool(re.search(r"\b(?:not|no|non|without)\b|n't", t.lower())))
+            if said & declared and negated(h.data.get("clause", "")) == negated(ctx.subgroup):
+                return CONSISTENT, (f"The result is declared as a subgroup result ({ctx.subgroup}), and the sentence "
+                                    f"names it ({', '.join(sorted(said & declared))}).")
+            return CHECK, (f"The result is declared for the subgroup '{ctx.subgroup}'; the sentence may name a "
+                           f"different one.")
         return CHECK, ("The result is the average difference between the compared conditions. A claim about one "
-                       "group alone, or about a subgroup, needs its own analysis.")
+                       "group alone, or about a subgroup, needs its own analysis. If the result is itself a subgroup "
+                       "result, declare subgroup='...'.")
 
     if cat == "bayesian_wording":
         return CHECK, ("This result comes from a frequentist analysis. Bayesian terms (credible interval, posterior, "
