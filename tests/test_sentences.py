@@ -18,16 +18,16 @@ CODE = {"A": None, "N": "check", "B": "conflict"}
 CORPUS = {
     "There was no meaningful effect.": "BBAABB",
     "The program had no real effect on scores.": "BBBBBB",
-    "Scores were not lower with the program.": "NNNBBB",
+    "Scores were not lower with the program.": "NNNNNN",  # no contrast binds the comparison
     "The program neither helped nor harmed.": "BBBBBB",
     "The effect was small.": "BBAABB",
-    "Scores were slightly higher.": "BBABBB",
+    "Scores were slightly higher.": "NNNNNN",  # direction is comparative and unbound
     "There was a slight decrease.": "BBBBBB",
     "There is strong evidence of an effect.": "NNNBBN",
     "There is evidence that the program works.": "AAABBB",
     "There is weak evidence of an effect.": "NNNNNN",
     "The effect was marginally significant.": "NNNBBN",
-    "The program caused higher scores.": "NNNBBB",
+    "The program caused higher scores.": "NNNNNN",  # direction and causality need review
     "The effect is negligible.": "BBAABB",
     "The effect is not different from zero.": "BBBBBB",
     "Nobody benefited from the program.": "BBBBBB",
@@ -41,7 +41,8 @@ CORPUS = {
     "There was no increase in scores.": "BBBBBN",
     "The effect is negative and statistically significant.": "BBBBBA",
     "Scores increased for every student.": "BBBBBB",
-    "The program had a huge effect.": "NBBBBN",
+    # A SESOI is not a definition of "huge"; the scale needs review in every scenario.
+    "The program had a huge effect.": "NNNNNN",
 }
 
 

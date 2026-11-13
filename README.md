@@ -15,12 +15,16 @@ importance, and it can flag common misreadings in a sentence you are about to wr
 > and the sentence linter's accuracy has not been measured. Use it as an aid to careful
 > reporting, not as a validator, and check its output. Reports of wrong results are very welcome.
 
-> **Known limitations in 0.4.1:** The sentence linter can use the zero-test p-value
-> when a sentence names an equivalence or minimal-effect test; it can also misread
-> combined direction-and-threshold claims. Check all linter output against the
-> original analysis. At extreme numerical precision near a threshold, the reported
-> p-value and decision can disagree. See [KNOWN_ISSUES.md](KNOWN_ISSUES.md) for
-> examples and other limitations before using this alpha.
+> **0.5.0 — public trial.** Please try it on your own results and tell us where it is
+> wrong. The sentence checker is pattern-based and partial: a **conflict** is an apparent
+> contradiction that can itself be mistaken; **not verified** lists some parts it could
+> not check. No warning is never an approval. Always check group order, outcome, contrast and the complete
+> sentence yourself. See [KNOWN_ISSUES.md](KNOWN_ISSUES.md).
+
+**Try it** in the [quick-start notebook on Colab](https://colab.research.google.com/github/Haifawaeedd/statwarrant/blob/main/examples/quickstart.ipynb)
+(nothing to install). **Found a sentence the checker judged wrongly?**
+[Report it](https://github.com/Haifawaeedd/statwarrant/issues/new?template=linter.yml); this is
+the most useful feedback. Reports are public: do not paste confidential or unpublished text.
 
 It does not invent new statistics. It combines established methods (tests of
 difference, equivalence and minimal effect; design analysis) into one consistent
@@ -40,15 +44,9 @@ print(res)
 ```
 
 ```text
-The effect is positive (95% CI [0.997, 7.4]); whether it reaches the smallest effect size
-of interest (3 points) is not determined by these data. Scope: first-year students, one
-university, one term.
-Do not say: "There is no effect."; "The effect is practically important."; "The effect is
-large."; "The two conditions are equivalent."; "The effect generalizes to all settings.";
-"The results prove the effect is exactly the estimated value."
-Every threshold: an effect beyond ±d for any d below 0.9972 points; equivalence within ±d
-for any d above 7.403 points; neither from 0.9972520253676223 to 7.402747974632378 (exact
-cut-offs).
+The effect is positive (95% CI [0.997, 7.4] (endpoints rounded for display)); whether it reaches the smallest effect size of interest (3 points) is not determined by these data. Scope: first-year students, one university, one term.
+Do not say: "There is no effect."; "The effect is practically important."; "The two conditions are equivalent."; "The effect generalizes to all settings."; "The results prove the effect is exactly the estimated value."
+Every threshold: an effect beyond ±d for any d below 0.9972 points; equivalence within ±d for any d above 7.403 points; neither from 0.9972520253676211 to 7.402747974632379 (exact cut-offs).
 ```
 
 The result is statistically significant (p = 0.011), yet the declared 3-point threshold
@@ -60,18 +58,29 @@ print(res.check("The new method improved scores by about 4 points and is safe fo
 ```
 
 ```text
-[1 warning] The new method improved scores by about 4 points and is safe for all students.
-  - conflict generalization         "for all": An average effect does not show that every
-    individual or case is affected, and the evidence comes from 'first-year students,
-    one university, one term' only.
+[1 conflict, 2 to verify] The new method improved scores by about 4 points and is safe for all students.
+  Conflicts with the result:
+  - generalization         "for all": An average effect does not show that every individual or
+    case is affected, and the evidence comes from 'first-year students, one university, one
+    term' only.
     Check: Limit the claim to the declared scope and to the average effect.
-  Consistent with the result: "improved" (direction); "by about 4" (magnitude).
-  Not checked: "The new method", "scores", "points and is safe", "students".
+  Not verified (statwarrant could not check these; review them by hand):
+  - direction              "improved": The direction's relationship to the declared contrast,
+    compared groups or time points and their order could not be verified. Check the wording
+    and contrast by hand.
+  - magnitude              "by about 4 … points": Not checked against the result: this size
+    depends on which way the comparison runs, and the wording could not be tied to the
+    declared contrast (new method minus existing method). Check it by hand.
+  Not checked: "The new method", "scores", "and is safe", "students".
+  Unit checking is pattern-based and partial: a limited set of simple units adjacent to a
+  recognised effect or estimate are compared. Other units and conversions may be unchecked;
+  verify them by hand.
   A warning is a prompt for review, not proof that the sentence is false.
 ```
 
-The checker only warns; it never approves a sentence. "Is safe" was not checked, and
-the output says so.
+The checker only warns; it never approves a sentence. A **conflict** contradicts the
+result. **Not verified** lists parts it recognised but could not check, for you to review.
+"Is safe" was not checked at all, and the output says so.
 
 ## Why
 
@@ -100,18 +109,56 @@ the output says so.
 | Input checks | Adapters check the original statistic and p-value, with limitations for extremely small p-values; see known issues. |
 | Design sensitivity | Power, Type S and exaggeration ratio under assumed effects, with the source of each assumption required. |
 | Scope | The linter can warn about some generalizations; it does not verify the stated scope or catch every overgeneralization. |
-| Absolute and relative | With a `baseline`, both changes are reported side by side. |
+| Absolute and relative | With a `baseline`, both changes are reported side by side. A ratio (`ratio=True`) is reported as a relative change in the quantity compared by the ratio. A baseline is refused for a ratio and recognized log-scale units; free-text units do not guarantee scale detection. |
 | Common inputs | scipy t-test results, statsmodels fits, estimate + SE, a published interval, or paired item scores (e.g. two models on the same test questions, with cluster-robust SE). |
 
 ## Install
 
 ```bash
-pip install "git+https://github.com/Haifawaeedd/statwarrant@v0.4.1"
+pip install "git+https://github.com/Haifawaeedd/statwarrant@v0.5.0"
 ```
 
-Pin the version you used, so your analysis can be reproduced. Requires Python 3.9+,
-NumPy and SciPy 1.11+. If the repository is private, Git must be authenticated with
-an account that has access.
+Pin the version you used (the `v0.5.0` tag), so your analysis can be reproduced.
+Requires Python 3.9+, NumPy 1.22+ and SciPy 1.11+. If an earlier development snapshot is
+installed, add `--force-reinstall` so it is not reused silently. statwarrant is not yet on
+PyPI.
+
+## Real-data regression example
+
+The tests include the historical Longley economic regression and compare its seven
+coefficients and standard errors with [NIST-certified reference values](https://www.itl.nist.gov/div898/strd/lls/data/LINKS/v-Longley.shtml).
+The p-values and confidence intervals are recomputed from those values using SciPy;
+NIST does not certify these derived quantities on that page, and statwarrant also
+uses SciPy. Five additional tests use **fixed summaries**, not fresh model fits,
+from Norris, Pontius, PlantGrowth, Iris and ChickWeight; their t-tail references
+were computed independently using mpmath. The tests use illustrative thresholds,
+not established practical standards. Run both groups with:
+
+```bash
+pip install -e ".[test]"
+pytest -q tests/test_nist_longley_validation.py tests/test_real_data_reference_summaries.py
+```
+
+These examples are not certification of all statistical methods or of the sentence
+linter. Longley's OLS model has strongly correlated predictors; interpretation of
+any estimate depends on the original data and model assumptions, not on statwarrant.
+
+## How it is checked
+
+[VALIDATION.md](VALIDATION.md) lists what has been checked and how: NIST reference values,
+independently computed tails, design analysis against numerical integration and a published
+worked example, adapters that recompute reported statistics, results from six published
+studies, the supported environments, and what has not been checked yet.
+[examples/published_results.py](examples/published_results.py) runs statwarrant on results
+from two published trials.
+
+## Independent human evaluation
+
+The [human-review starter kit](evaluation/human-review/README.md) contains empty CSV
+templates and Arabic instructions for collecting real claims and recording two blinded,
+independent human reviews. It contains no study data or completed labels. A 30-claim
+pilot can test the process, but does not measure general accuracy; a separate,
+held-out evaluation is still needed. Do not commit confidential data or unlicensed text.
 
 ## Usage
 
@@ -138,15 +185,48 @@ verification limitation; see [KNOWN_ISSUES.md](KNOWN_ISSUES.md).
 ```python
 res = plan.analyze(ci=(1.0, 7.4), df=58)
 res = plan.analyze(estimate=4.2, ci=(1.0, 7.4), df=58)     # estimate is checked against the midpoint
+
+# a published odds, risk, rate or hazard ratio, as printed (analysed on the log scale)
+res = sw.declare(units="log hazard ratio").analyze(estimate=0.83, ci=(0.75, 0.93), ratio=True)
 ```
 
-Intervals must be symmetric (estimate ± critical value × SE). An asymmetric interval
-is refused instead of being silently symmetrised. Endpoints alone cannot prove that
-the original interval was symmetric: give `estimate=` too when you have it, so the
-check can run. An interval far from zero relative to its width (say 10^14 ± 0.3) is
-refused, because its width cannot be recovered accurately; give `estimate=` and `se=`. For ratios (odds, risk, hazard),
-give the estimate and interval on the log scale; for bootstrap or other asymmetric
-intervals, give `estimate=` and `se=`.
+Intervals are treated as symmetric (estimate ± critical value × SE). An interval that
+fails the symmetry check is refused. Endpoints alone cannot prove that the original
+interval was symmetric: give `estimate=` too when you have it. An interval far from zero
+relative to its width (say 10^14 ± 0.3) is refused because its width cannot be recovered
+accurately; give `estimate=` and `se=`. For ratios (odds, risk, rate, hazard), pass the
+printed numbers with `ratio=True`, or give log-scale numbers.
+
+The symmetry check uses a heuristic that assumes a common printed precision. A small gap
+between the estimate and the midpoint is tolerated (5% of the half-width plus an assumed
+rounding allowance); statwarrant uses the midpoint, not the given estimate, and reports
+the assumptions. Floats cannot reveal the original precision or whether rounding caused
+the difference. The input CI is reconstructed at its given level; the displayed interval
+is recalculated at `1 - alpha`, which can be different.
+
+With `ratio=True`, the report adds the reconstructed ratio and relative change when they
+can be safely displayed. For `0.83 (0.75 to 0.93)`, the given ratio 0.83 corresponds to
+-17%; the reconstructed geometric midpoint is about 0.8352, or -16.5% (95% CI -25% to
+-7%, at default settings). Rate, risk, odds and hazard ratios describe different
+quantities; check the comparison and interpretation. `ratio=True` uses the natural
+logarithm: an explicitly non-natural or unclear log base in `units` is refused, and any
+SESOI must be on the natural-log scale. `baseline=` is refused for ratios
+and recognized log-scale units in both `analyze()` and `analyze_paired()`: dividing a
+transformed estimate by a baseline is not generally a valid change on the original scale.
+Unit-name detection is partial. For bootstrap or other asymmetric intervals, give
+`estimate=` and `se=` if the corresponding assumptions are appropriate.
+
+### Describing the study
+
+```python
+sw.declare(..., design="randomised")      # or "observational"; used to judge causal wording
+sw.declare(..., subgroup="patients on mechanical ventilation")   # the result is a subgroup result
+```
+
+Both are your own description, reported and never verified. With `design="randomised"`,
+causal wording about an established average effect is not flagged; with
+`"observational"` it is a conflict. With `subgroup`, a sentence naming that subgroup is
+not flagged as a subgroup claim.
 
 ### Comparing two models on the same test items
 
@@ -268,11 +348,26 @@ do not claim it is the first or only one.
 
 This is an early release and your opinion shapes it.
 
-* **Tell us how it went:** [open a feedback form](https://github.com/Haifawaeedd/statwarrant/issues/new?template=feedback.yml)
-* **Found a sentence the linter handles wrongly** (a false warning, or a misreading it missed)? That is the most useful report we can get. Use the same form.
-* **Questions and ideas:** [Discussions](https://github.com/Haifawaeedd/statwarrant/discussions)
+* **A sentence the checker handled wrongly** (a false warning, or a misreading it missed):
+  [report it](https://github.com/Haifawaeedd/statwarrant/issues/new?template=linter.yml). This is
+  the most useful report we can get.
+* **A wrong number, a crash or contradictory output:**
+  [bug report](https://github.com/Haifawaeedd/statwarrant/issues/new?template=bug_report.yml).
+* **How it went overall:** [feedback form](https://github.com/Haifawaeedd/statwarrant/issues/new?template=feedback.yml).
+* **Questions and ideas:** [Discussions](https://github.com/Haifawaeedd/statwarrant/discussions).
 
-Feedback here is public and used to improve the software.
+Feedback here is public and used to improve the software. Do not paste confidential or
+unpublished text. Security problems: see [SECURITY.md](SECURITY.md).
+
+## How statwarrant is developed
+
+statwarrant is designed and maintained by Haifaa Owayed, who chooses its scope, methods,
+claim wording and validation plan. Much of the code, tests and documentation is written
+with AI coding assistants (including Claude by Anthropic), and several review rounds were
+carried out with AI systems; these are not independent human reviews. The statistics are
+tested against SciPy, statsmodels and published reference values; independent human
+validation of the sentence checker is still to come (see [KNOWN_ISSUES.md](KNOWN_ISSUES.md)
+and the [human-review kit](evaluation/human-review/README.md)).
 
 ## Citing
 

@@ -10,15 +10,21 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import re
 from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal
+from numbers import Number as Numeric
+
+import numpy as np
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from typing import Optional, Sequence, Tuple, Union
 
 from . import adapters
 from ._core import MIN_ALPHA, POLICIES, Evidence, Thresholds, evaluate, level_text
+from ._precision import checked_float
+from ._ratio_display import ratio_scale_note
 from ._version import __version__
-from .claims import CheckResult, Claims, Context, build_claims, check_sentence, fmt
+from .claims import CheckResult, Claims, Context, _uncertain_log_base, build_claims, check_sentence, fmt, fmt_bound, fmt_bounds, fmt_ci, fmt_p
 from .design import DesignTable, design_table
 
 # An estimate given with an interval may differ from the interval's midpoint by
@@ -27,6 +33,10 @@ from .design import DesignTable, design_table
 SYMMETRY_TOLERANCE = 0.05
 
 SCHEMA = "statwarrant-result/2"
+
+# Below this many items that differ between the two conditions, analyze_paired adds a
+# caution: the t approximation behind the interval can be poor.
+FEW_DIFFERING_ITEMS = 10
 
 
 def _round_dir(x: float, up: bool, sig: int = 4) -> str:
@@ -55,7 +65,7 @@ def _raw(x):
         return None
     try:
         v = float(x)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return str(x)
     return v if math.isfinite(v) else str(v)
 
@@ -91,6 +101,8 @@ class Plan:
     outcome: Optional[str] = None
     contrast: Optional[str] = None
     registration: Optional[str] = None
+    design: Optional[str] = None
+    subgroup: Optional[str] = None
 
     # ------------------------------------------------------------------ #
     def analyze(
@@ -105,33 +117,79 @@ class Plan:
         ci_level: float = 0.95,
         baseline: Optional[Number] = None,
         label: Optional[str] = None,
+        ratio: bool = False,
     ) -> "Result":
         """Interpret one effect.
 
         Give exactly one of: a fitted result (scipy t-test, or statsmodels with
         ``term=``); ``estimate`` and ``se``; or ``ci`` (optionally with ``estimate``).
 
-        With ``ci``, the interval must be symmetric (a Wald-type interval). An
-        ``estimate`` given alongside it is checked against the midpoint and must
-        agree up to rounding; the midpoint is then used, so the published interval
-        is reproduced exactly. Asymmetric intervals (odds, risk or hazard ratios,
-        bootstrap intervals) are refused: give log-scale numbers, or ``estimate``
-        and ``se``.
+        With ``ci``, a symmetric Wald-type interval is assumed. An ``estimate``
+        given alongside it is checked against the midpoint using a symmetry and
+        rounding heuristic, and the midpoint is used for the analysis. The input
+        interval is reconstructed at ``ci_level`` up to numerical precision; the
+        displayed interval is recalculated at ``1 - alpha``, which may differ.
+        Intervals that fail the symmetry check are refused: give ``estimate`` and
+        ``se`` instead if the Wald assumption is appropriate.
+
+        With ``ratio=True``, ``estimate`` and ``ci`` are a published odds, risk, rate or
+        hazard ratio and its interval, as printed; statwarrant analyses them on the log
+        scale. The symmetry check uses a common-precision rounding heuristic, as it
+        does on the linear scale. Float inputs cannot establish the actual printed
+        precision of each value or whether rounding caused a discrepancy.
 
         ``baseline`` is the reference level of the outcome, used to report the
         absolute and the relative change side by side. ``label`` names this
         result (e.g. "H1, main effect") so sentences and reports point to it.
+
+        Explicit integral inputs that cannot be represented exactly as floats
+        are refused. Numbers already rounded to floats cannot be recovered.
         """
         given = sum(x is not None for x in (result, se, ci))
         if given != 1:
             raise ValueError("give exactly one of: a fitted result, se=..., or ci=(lower, upper)")
 
+        if baseline is not None:
+            checked_float(baseline, "baseline")
+        est_input = checked_float(estimate, "estimate") if result is None and estimate is not None else None
+        se_input = checked_float(se, "se") if se is not None else None
+        df_input = checked_float(df, "df") if result is None and df is not None else None
+        if ci is not None:
+            lo = checked_float(ci[0], "ci lower bound")
+            hi = checked_float(ci[1], "ci upper bound")
+        rounding = 0.0
+        rounding_places = None
+        _check_baseline_scale(baseline, self.units, ratio=ratio)
+        if ratio:
+            if self.units and _uncertain_log_base(self.units):
+                raise ValueError(
+                    "ratio=True analyses ratios using the natural logarithm, but the declared units "
+                    "specify a non-natural or unclear log base. Use natural-log units and convert any "
+                    "SESOI to that scale, or analyse the estimate and interval on the intended scale directly.")
+            if ci is None or result is not None:
+                raise ValueError("ratio=True needs ci=(lower, upper) on the ratio scale (optionally with estimate=)")
+            values = [lo, hi] + ([est_input] if est_input is not None else [])
+            if not all(math.isfinite(v) and v > 0 for v in values):
+                raise ValueError("ratios and their interval must be finite and positive")
+            # Preserve the common-precision heuristic used by the acceptance check.
+            # It is not evidence of the actual precision in the source.
+            rounding_places = _assumed_decimal_places(*values)
+            unit = _half_unit(*values)
+            rounding = sum(unit / v for v in values[2:]) + (unit / lo + unit / hi) / 2
+            lo, hi = math.log(lo), math.log(hi)
+            est_input = None if est_input is None else math.log(est_input)
+        elif ci is not None and est_input is not None:
+            rounding_places = _assumed_decimal_places(est_input, lo, hi)
+            rounding = 2 * _half_unit(est_input, lo, hi)
+
         null = 0.0
+        provenance: list = []
         raw = {"estimate": _raw(estimate), "se": _raw(se), "df": _raw(df),
                "ci": None if ci is None else [_raw(ci[0]), _raw(ci[1])],
-               "ci_level": ci_level if ci is not None else None, "baseline": _raw(baseline)}
+               "ci_level": ci_level if ci is not None else None, "baseline": _raw(baseline),
+               **({"ratio_scale_input": True} if ratio else {})}
         if result is not None:
-            est, s, d, source, null = adapters.from_result(result, term)
+            est, s, d, source, null, provenance = adapters.from_result(result, term)
             if hasattr(result, "params"):  # statsmodels: the statistic and p-value of this term
                 rep_stat, rep_p = _term_value(result, "tvalues", term), _term_value(result, "pvalues", term)
             else:
@@ -139,29 +197,89 @@ class Plan:
             raw = {"result_type": type(result).__name__, "term": None if term is None else str(term),
                    "reported_statistic": rep_stat, "reported_p": rep_p, "baseline": raw["baseline"]}
         elif ci is not None:
-            lo, hi = float(ci[0]), float(ci[1])
-            mid, s = adapters.from_ci(lo, hi, ci_level, df)
+            mid, s = adapters.from_ci(lo, hi, ci_level, df_input)
             if estimate is not None:
-                gap = abs(float(estimate) - mid)
+                gap = abs(est_input - mid)
                 half = (hi - lo) / 2
-                if not math.isfinite(float(estimate)) or gap > SYMMETRY_TOLERANCE * half:
+                if rounding_places is None:
+                    assumption = ("the existing check uses a zero rounding allowance when a float representation "
+                                  "uses scientific notation")
+                else:
+                    place = "place" if rounding_places == 1 else "places"
+                    assumption = (f"the existing check assumes a common precision of {rounding_places} decimal "
+                                  f"{place} based on the float representations")
+                if not math.isfinite(est_input) or gap > SYMMETRY_TOLERANCE * half + rounding:
+                    scale = " on the log scale" if ratio else ""
                     raise ValueError(
-                        f"the interval ({fmt(lo)}, {fmt(hi)}) is not symmetric around the estimate {fmt(float(estimate))} "
-                        f"(midpoint {fmt(mid)}). statwarrant reads intervals as estimate +/- critical value x SE, so an "
-                        f"asymmetric interval would be misread. For ratios (odds, risk, hazard) give the log estimate "
-                        f"and log interval; otherwise pass estimate= and se= directly."
+                        f"the interval ({fmt(lo)}, {fmt(hi)}) is not symmetric around the estimate {fmt(est_input)} "
+                        f"(midpoint {fmt(mid)}) under statwarrant's acceptance heuristic{scale}. For this check, "
+                        f"{assumption}, with an assumed rounding allowance of {rounding:.3g}{scale}; "
+                        f"actual printed precision and whether "
+                        f"rounding caused the discrepancy are unknown from floats. statwarrant reads intervals as "
+                        f"estimate +/- critical value x SE, so an asymmetric interval would be misread. Check the "
+                        f"inputs, or pass estimate= and se= directly if the Wald assumption is appropriate."
                     )
+                # Ignore only machine-level differences, not material differences
+                # merely because both numbers happen to be much smaller than one.
+                if gap > 8 * max(math.ulp(est_input), math.ulp(mid)):
+                    scale = " on the log scale" if ratio else ""
+                    position = "is within" if gap <= rounding else "exceeds"
+                    if ratio:
+                        shown_given, shown_mid = _fmt_midpoint_pair(_raw(estimate), math.exp(mid))
+                        log_given, log_mid = _fmt_midpoint_pair(est_input, mid)
+                        given_scale = f"; ratio scale, {log_given} on the log scale"
+                        midpoint_scale = f"; ratio-scale geometric midpoint, {log_mid} on the log scale"
+                    else:
+                        shown_given, shown_mid = _fmt_midpoint_pair(est_input, mid)
+                        given_scale = midpoint_scale = ""
+                    provenance.append(
+                        f"The estimate given ({shown_given}{given_scale}) differs from the interval's midpoint "
+                        f"({shown_mid}{midpoint_scale}) by {gap:.3g}{scale} (values rounded for display). "
+                        f"Printed precision is unknown: floats "
+                        f"do not preserve trailing zeros or the original notation. For the symmetry check, "
+                        f"{assumption}; the approximate rounding allowance is {rounding:.3g}{scale}, and the gap "
+                        f"{position} it. The gap is within the acceptance limit of "
+                        f"{SYMMETRY_TOLERANCE * half + rounding:.3g}{scale} "
+                        f"({SYMMETRY_TOLERANCE:.0%} of the half-width plus the allowance). Whether rounding "
+                        f"actually explains the difference is unknown. statwarrant uses the midpoint, not the given "
+                        f"estimate; check that the estimate and the interval belong together.")
+                    raw["estimate_vs_midpoint"] = {"given": _raw(est_input), "midpoint": _raw(mid),
+                                                   "scale": "log_ratio" if ratio else "input",
+                                                   "explained_by_rounding": None,
+                                                   "within_assumed_rounding_allowance": gap <= rounding,
+                                                   "assumed_rounding_allowance": _raw(rounding),
+                                                   "assumed_decimal_places": rounding_places}
             est = mid
-            d = None if df is None else float(df)
-            source = f"interval ({level_text(ci_level)})"
+            d = df_input
+            source = f"interval ({level_text(ci_level)})" + (", ratio scale, analysed as logs" if ratio else "")
+            same_level = math.isclose(ci_level, 1 - self.alpha, rel_tol=0, abs_tol=1e-15)
+            if "estimate_vs_midpoint" in raw or not same_level:
+                relationship = "the same level as the input" if same_level else "a different level from the input"
+                provenance.append(
+                    f"Under the symmetric Wald assumption, the {level_text(ci_level)} input interval is "
+                    f"reconstructed up to numerical precision. The displayed {level_text(1 - self.alpha)} "
+                    f"interval for the zero test is recalculated at 1 - alpha ({relationship})."
+                )
         else:
             if estimate is None:
                 raise ValueError("estimate= is required together with se=")
-            est, s = float(estimate), float(se)
-            d = None if df is None else float(df)
+            est, s = est_input, se_input
+            d = df_input
             source = "estimate and standard error"
 
-        return self._finish(est, s, d, source, baseline, null, label, raw)
+        res = self._finish(est, s, d, source, baseline, null, label, raw)
+        if ratio and self.units and not _log_scale(self.units):
+            provenance.append(f"ratio=True analyses the log of the ratio, so the estimate, interval and thresholds reported are log ratios; the "
+                              f"declared units ({self.units!r}) do not say so. Declare units such as 'log "
+                              f"{self.units}' to make reports read correctly.")
+        if ratio:
+            provenance.append(ratio_scale_note(res.evidence.estimate, res.evidence.zero_interval,
+                                               res.evidence.zero_level))
+        for note in reversed(provenance):
+            res.claims.notes.insert(0, note)
+        if provenance:
+            res.raw_input["provenance_notes"] = list(provenance)
+        return res
 
     def analyze_paired(
         self,
@@ -173,25 +291,45 @@ class Plan:
         label: Optional[str] = None,
     ) -> "Result":
         """Item-level paired scores, e.g. model A and model B on the same test questions (A - B)."""
+        if baseline is not None:
+            checked_float(baseline, "baseline")
+        _check_baseline_scale(baseline, self.units)
         est, s, d = adapters.paired(a, b, cluster)
         source = "paired item scores" + (" (cluster-robust SE)" if cluster is not None else "")
+        differing = int(np.count_nonzero(adapters.paired_differences(a, b)))
         # n_clusters comes from the same grouping the inference used (df = G - 1).
-        raw = {"n_items": len(a), "n_clusters": None if cluster is None else int(round(d)) + 1,
-               "baseline": _raw(baseline)}
-        return self._finish(est, s, d, source, baseline, 0.0, label, raw)
+        raw = {"n_items": len(a), "n_differing_items": differing,
+               "n_clusters": None if cluster is None else int(round(d)) + 1, "baseline": _raw(baseline)}
+        res = self._finish(est, s, d, source, baseline, 0.0, label, raw)
+        if differing < FEW_DIFFERING_ITEMS:
+            res.claims.notes.insert(0, (
+                f"Only {differing} of {len(a)} items differ between the two conditions. The interval is a t "
+                f"approximation, which can be poor with so few differing items; the conclusion is conditional on "
+                f"it. Check it with an exact method for paired data (e.g. an exact interval on the discordant items)."))
+        return res
 
-    def _finish(self, est, s, d, source, baseline, null: float = 0.0, label: Optional[str] = None,
+    def _finish(self, est, s, d, source, baseline, null: Optional[float] = 0.0, label: Optional[str] = None,
                 raw: Optional[dict] = None) -> "Result":
         if baseline is not None:
-            baseline = float(baseline)
+            baseline = checked_float(baseline, "baseline")
             if not math.isfinite(baseline) or baseline == 0:
                 raise ValueError("baseline must be a finite, non-zero number (a relative change needs a non-zero reference)")
         ev = evaluate(est, s, d, self.alpha, self.interval_policy, self.sesoi)
-        ctx = Context(ev, self.units, self.scope, self.better, baseline)
+        if baseline is not None:
+            relative = [x / baseline for x in (ev.estimate, *ev.zero_interval)]
+            if not all(math.isfinite(x) for x in relative):
+                raise ValueError("the baseline is too small for the estimate: the relative change overflows. "
+                                 "Rescale the outcome or omit the baseline.")
+        # A SciPy adapter reconstructs its test null only approximately. For a
+        # nonzero or unknown null, evidence is relative to that null rather than
+        # necessarily the sign of the original named group contrast.
+        comparison_origin_is_zero = null == 0.0 and not source.startswith("scipy:")
+        ctx = Context(ev, self.units, self.scope, self.better, baseline, self.outcome,
+                      self.contrast, comparison_origin_is_zero, design=self.design, subgroup=self.subgroup)
         claims = build_claims(ctx)
-        if null != 0.0:
-            claims.notes.insert(0, f"The effect is the difference from the test's null value {fmt(null)} "
-                                   f"(the estimate {fmt(est)} means {fmt(est + null)} - {fmt(null)}).")
+        if null is not None and null != 0.0:
+            claims.notes.insert(0, f"The effect is the difference from the test's null value {null:.12g} "
+                                   f"(approximately reconstructed: {est:.12g} is {est + null:.12g} minus {null:.12g}).")
         return Result(plan=self, evidence=ev, context=ctx, claims=claims, source=source, null=null, label=label,
                       raw_input=raw or {})
 
@@ -210,6 +348,11 @@ class Plan:
         if version >= 2:
             out["outcome"] = self.outcome
             out["contrast"] = self.contrast
+            # added in 0.5.0; hashed only when given, so earlier plans keep their fingerprints
+            if self.design is not None:
+                out["design"] = self.design
+            if self.subgroup is not None:
+                out["subgroup"] = self.subgroup
         return out
 
     def fingerprint_for(self, version: int) -> str:
@@ -244,6 +387,75 @@ class Plan:
         return out
 
 
+# This guard recognizes explicit common spellings, not arbitrary free text.
+# Unknown unit labels cannot establish that a result is on a linear scale.
+_BASELINE_LOG_UNITS = re.compile(
+    r"""(?<!\w)(?:
+        logarithm\w*
+      | logit(?:s)?(?:_[a-z0-9_]+|p|probability)?(?!\w)
+      | (?:log|ln)_?(?:10|2|₁₀|₂)(?=$|[^\w]|_|(?:rr|or|hr|irr|fc|foldchange|riskratio|rateratio|oddsratio|hazardratio)(?!\w))
+      | (?:log|ln)_?(?:rr|or|hr|irr|riskratio|rateratio|oddsratio|hazardratio)(?!\w)
+      | (?:log|ln)_(?:risk|rate|odds|hazard)(?:_ratio)?(?!\w)
+      | ln(?!\w)
+      | log(?!\w)(?![-\s]+in\b)
+    )""", re.IGNORECASE | re.VERBOSE)
+
+
+def _check_baseline_scale(baseline, units: Optional[str], *, ratio: bool = False) -> None:
+    if baseline is not None and (ratio or (units and _BASELINE_LOG_UNITS.search(units))):
+        raise ValueError(
+            "a baseline cannot be combined with a ratio or a declared log-scale result: a ratio is already relative, "
+            "but a log-scale value is not necessarily a ratio. Dividing a transformed estimate by a baseline does "
+            "not generally give a valid relative change on the original scale. Omit baseline=; with ratio=True "
+            "statwarrant reports the change on the ratio scale.")
+
+
+def _log_scale(units: Optional[str]) -> bool:
+    """Units declaring a log scale (log-odds, log hazard ratio, logit, ln ...)."""
+    return bool(units) and bool(re.search(r"\blog(?:arithm\w*)?\b|\blog[- ]|logit|\bln\b", units.lower()))
+
+
+_DESIGNS = {"randomized": "randomised", "rct": "randomised", "randomised controlled trial": "randomised",
+            "randomized controlled trial": "randomised", "randomised trial": "randomised",
+            "randomized trial": "randomised", "cohort": "observational", "case control": "observational",
+            "cross sectional": "observational", "observational study": "observational"}
+
+
+def _assumed_decimal_places(*xs: float) -> Optional[int]:
+    """Common decimal places for the existing heuristic, or None for scientific reprs.
+
+    Float representations do not reveal the actual printed precision or notation.
+    """
+    decimals = 0
+    for x in xs:
+        text = repr(float(x))
+        if "e" in text or "E" in text:
+            return None
+        if "." in text:
+            decimals = max(decimals, len(text.split(".")[1].rstrip("0")))
+    return decimals
+
+
+def _half_unit(*xs: float) -> float:
+    """Half a decimal unit under the existing common-precision acceptance heuristic.
+
+    This heuristic returns zero for scientific float representations; it cannot
+    determine the source's printed precision, and must not be treated as evidence
+    of why an estimate differs from an interval midpoint.
+    """
+    decimals = _assumed_decimal_places(*xs)
+    return 0.0 if decimals is None else 0.5 * 10.0 ** -decimals
+
+
+def _fmt_midpoint_pair(given: float, midpoint: float) -> Tuple[str, str]:
+    """Keep close, distinct values distinct in the substitution note."""
+    for precision in range(6, 18):
+        a, b = format(given, f".{precision}g"), format(midpoint, f".{precision}g")
+        if a != b or given == midpoint:
+            break
+    return a, b
+
+
 def declare(
     *,
     sesoi: Optional[Union[Number, Tuple[Number, Number]]] = None,
@@ -256,6 +468,8 @@ def declare(
     outcome: Optional[str] = None,
     contrast: Optional[str] = None,
     registration: Optional[str] = None,
+    design: Optional[str] = None,
+    subgroup: Optional[str] = None,
 ) -> Plan:
     """Fix the rules of interpretation before looking at the result.
 
@@ -284,6 +498,13 @@ def declare(
     registration : str, optional
         Where the plan's fingerprint was registered (an OSF link, a commit URL). Not
         part of the fingerprint, so it can be added after registering.
+    design : {"randomised", "observational"}, optional
+        How the compared groups were formed. With "randomised", causal wording about an
+        established average effect is not flagged; with "observational", it is a conflict.
+        Your own description: reported, never verified.
+    subgroup : str, optional
+        When the result is itself a subgroup result ("patients on mechanical
+        ventilation"): sentences naming that subgroup are not flagged as subgroup claims.
     """
     if interval_policy not in POLICIES:
         raise ValueError(f"interval_policy must be one of {POLICIES}")
@@ -291,6 +512,14 @@ def declare(
         raise ValueError("better must be 'higher' or 'lower'")
     if not MIN_ALPHA <= alpha < 0.5:
         raise ValueError(f"alpha must be at least {MIN_ALPHA:g} and below 0.5")
+    if design is not None:
+        key = re.sub(r"[\s_-]+", " ", str(design).strip().lower())
+        design = _DESIGNS.get(key, key)
+        if design not in ("randomised", "observational"):
+            raise ValueError("design must be 'randomised' (also 'randomized', 'rct') or 'observational' (also "
+                             "'cohort', 'case-control', 'cross-sectional'), or omitted")
+    if subgroup is not None and not str(subgroup).strip():
+        raise ValueError("subgroup must be a non-empty description, or omitted")
 
     bounds = None
     if sesoi is not None:
@@ -299,12 +528,15 @@ def declare(
                 "a smallest effect size of interest needs a stated reason: pass sesoi_source='...' "
                 "(e.g. 'smallest change teachers consider worth acting on')"
             )
-        if isinstance(sesoi, (int, float)):
-            if not (math.isfinite(sesoi) and sesoi > 0):
+        if isinstance(sesoi, Numeric) or (isinstance(sesoi, np.ndarray) and sesoi.ndim == 0):
+            value = checked_float(sesoi, "sesoi")
+            if not (math.isfinite(value) and value > 0):
                 raise ValueError("a single sesoi value must be a finite positive number; it means (-sesoi, +sesoi)")
-            bounds = (-float(sesoi), float(sesoi))
+            bounds = (-value, value)
         else:
-            low, high = (float(x) for x in sesoi)
+            low, high = sesoi
+            low = checked_float(low, "sesoi lower bound")
+            high = checked_float(high, "sesoi upper bound")
             if not (math.isfinite(low) and math.isfinite(high) and low < 0 < high):
                 raise ValueError("sesoi bounds must be finite and satisfy low < 0 < high")
             bounds = (low, high)
@@ -321,6 +553,8 @@ def declare(
         outcome=outcome,
         contrast=contrast,
         registration=registration,
+        design=design,
+        subgroup=None if subgroup is None else str(subgroup),
     )
 
 
@@ -331,7 +565,7 @@ class Result:
     context: Context
     claims: Claims
     source: str
-    null: float = 0.0
+    null: Optional[float] = 0.0
     label: Optional[str] = None
     raw_input: dict = field(default_factory=dict)
     checked: list = field(default_factory=list)
@@ -363,6 +597,8 @@ class Result:
             "Whether the model behind the estimate and standard error is appropriate "
             "(statwarrant assumes a normal or t reference distribution).",
             "Data quality and the analysis choices made before the estimate.",
+            "Units and conversions in checked sentences: unit checks are pattern-based and partial; "
+            "units and conversions may be unchecked and need independent review.",
         ]
         items.append("That the plan was declared before the data were seen. The fingerprint is evidence only if it was "
                      "registered with a third party before the analysis.")
@@ -421,14 +657,15 @@ class Result:
         u = f" {self.plan.units}" if self.plan.units else ""
         out = []
         if th.met_below is None:
-            out.append(f"- No threshold gives an effect beyond it: the {level_text(th.met_level)} interval includes zero.")
+            out.append("- No positive threshold gives an effect beyond it: the difference from zero is not "
+                       "established at the declared significance level.")
         else:
             out.append(f"- An effect larger than ±d is established for every threshold d below "
-                       f"**{fmt_down(th.met_below)}{u}** ({level_text(th.met_level)} interval; cut-off ≈ "
+                       f"**{fmt_down(th.met_below)}{u}** ({level_text(th.met_level)} interval; cut-off about "
                        f"{th.met_below:.6g}).")
         out.append(f"- Equivalence within ±d is established for every threshold d above "
                    f"**{fmt_up(th.equivalence_above)}{u}** ({level_text(th.equivalence_level)} interval; "
-                   f"cut-off ≈ {th.equivalence_above:.6g}).")
+                   f"cut-off about {th.equivalence_above:.6g}).")
         if th.met_below is not None:
             out.append(f"- For thresholds from {th.met_below!r} to {th.equivalence_above!r} (the exact cut-offs, "
                        f"both included), neither is established.")
@@ -439,7 +676,7 @@ class Result:
         if pos is not None:
             words = {"exceeds": "the effect exceeds it", "equivalent": "equivalence is established",
                      "undetermined": "neither is established"}[pos]
-            out.append(f"- Your declared threshold (±{fmt(self.plan.sesoi[1])}{u}): {words}.")
+            out.append(f"- Your declared threshold (±{fmt_bound(self.plan.sesoi[1])}{u}): {words}.")
         elif self.plan.sesoi is not None:
             out.append("- Your declared bounds are asymmetric; see the tests above.")
         return out
@@ -456,7 +693,7 @@ class Result:
         lines.append(f"- **Input:** {self.source}")
         lines += ["", "### Declared plan (timing not verified)"]
         if p.sesoi:
-            lines.append(f"- **Smallest effect size of interest:** [{fmt(p.sesoi[0])}, {fmt(p.sesoi[1])}], "
+            lines.append(f"- **Smallest effect size of interest:** {fmt_bounds(*p.sesoi)}, "
                          f"because: {p.sesoi_source}")
         else:
             lines.append("- **Smallest effect size of interest:** none declared")
@@ -469,20 +706,21 @@ class Result:
                      f"{'' if ev.df is None else f', df {fmt(ev.df)}'}).")
         lines += ["", "| Test | Interval | p-value | Decision |", "| --- | --- | --- | --- |"]
         lo, hi = ev.zero_interval
-        lines.append(f"| Differs from zero | {level_text(ev.zero_level)} [{fmt(lo)}, {fmt(hi)}] | {fmt(ev.p_zero)} | "
+        lines.append(f"| Differs from zero | {level_text(ev.zero_level)} {fmt_ci(lo, hi)} | {fmt_p(ev.p_zero)} | "
                      f"{'yes' if ev.differs_from_zero else 'not established'} |")
         if p.sesoi:
             elo, ehi = ev.equivalence_interval
             mlo, mhi = ev.met_interval
-            lines.append(f"| Equivalent (TOST) | {level_text(ev.equivalence_level)} [{fmt(elo)}, {fmt(ehi)}] | "
-                         f"{fmt(ev.p_equivalence)} (one-sided, vs {fmt(ev.equivalence_threshold)}) | "
+            lines.append(f"| Equivalent (TOST) | {level_text(ev.equivalence_level)} {fmt_ci(elo, ehi)} | "
+                         f"{fmt_p(ev.p_equivalence)} (one-sided, vs {fmt(ev.equivalence_threshold)}) | "
                          f"{'yes' if ev.equivalent else 'not established'} |")
-            lines.append(f"| Exceeds SESOI (MET) | {level_text(ev.met_level)} [{fmt(mlo)}, {fmt(mhi)}] | "
-                         f"{fmt(ev.p_minimal_effect)} (one-sided, vs {fmt(ev.met_threshold)}) | "
+            lines.append(f"| Exceeds SESOI (MET) | {level_text(ev.met_level)} {fmt_ci(mlo, mhi)} | "
+                         f"{fmt_p(ev.p_minimal_effect)} (one-sided, vs {fmt(ev.met_threshold)}) | "
                          f"{'yes' if ev.exceeds_sesoi else 'not established'} |")
         lines += ["", "### Every threshold at once", ""]
-        lines.append("A re-reading of the same intervals, not new tests. Choosing a threshold after seeing these "
-                     "numbers is not a confirmatory claim.")
+        lines.append("Computed from the same estimate and standard error, not new tests. Decisions use test-statistic "
+                     "arithmetic, not rounded display endpoints. Choosing a threshold after seeing these numbers "
+                     "is not a confirmatory claim.")
         lines.append("")
         lines += self._threshold_lines()
         lines += ["", "### You can say"]

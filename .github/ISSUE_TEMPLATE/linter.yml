@@ -1,0 +1,57 @@
+name: A sentence the linter got wrong
+description: A false warning, or a misreading it missed. About one minute; the most useful report you can send.
+title: "[Linter] "
+labels: ["linter", "feedback"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you. These reports are how the sentence checker improves. Everything here is public:
+        do not paste confidential or unpublished text. A rephrased or invented sentence with the same
+        structure is fine.
+  - type: textarea
+    id: sentence
+    attributes:
+      label: The sentence
+      placeholder: "Neither a difference from zero nor equivalence was established."
+    validations:
+      required: true
+  - type: textarea
+    id: result
+    attributes:
+      label: The result it was checked against
+      description: The declare(...) and analyze(...) call, or the estimate, SE (or CI), df and SESOI.
+      render: python
+      placeholder: |
+        plan = sw.declare(sesoi=0.2, sesoi_source="...", units="points")
+        res = plan.analyze(estimate=0.15, se=0.1, df=80)
+    validations:
+      required: true
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What went wrong?
+      options:
+        - "False warning: the sentence is fine but got a warning"
+        - "Missed problem: the sentence misreads the result but got no warning"
+        - "Right warning, wrong reason or misleading explanation"
+        - "Other"
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: What statwarrant printed
+      description: Paste the output of print(res.check(sentence)).
+      render: text
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected, and why
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: statwarrant version
+      placeholder: "0.5.0 (python -c \"import statwarrant; print(statwarrant.__version__)\")"

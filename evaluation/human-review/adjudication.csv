@@ -1,0 +1,1 @@
+﻿case_id,adjudication_id,alignment_id,reviewer_a_row_ids,reviewer_b_row_ids,alignment_status,adjudicator_id,protocol_version,decision_status,final_label,final_claim_text,final_start_index,final_end_index,final_claim_type,final_issue_type,rationale,assumptions,confidence,evidence_quote,evidence_locator,adjudicated_at_utc,notes

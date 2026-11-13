@@ -1,6 +1,159 @@
 # Changelog
 
-## 0.4.1 (unreleased)
+## 0.5.0
+
+First public trial release. Built on the comparison-safety branch (commit 8ad4164)
+after the third user trial, two external reviews and a check on sentences from six
+published studies. The sentence checker remains experimental (see KNOWN_ISSUES.md).
+
+* Design sensitivity is computed in units of the standard error; an exaggeration ratio
+  that cannot be represented is refused with a message, instead of a report whose JSON
+  export fails. Checked against numerical integration and Gelman and Carlin (2014).
+* "Neither X nor Y was established" (and "the data support neither ...", "neither a
+  significant difference nor equivalence") is judged item by item instead of being read
+  as a claim of no effect. The conservative rule for "neither equivalence nor an effect"
+  is kept and now also covers a size qualifier on "an effect".
+* In comparisons that cannot be tied to the declared contrast, warnings on numbers,
+  sizes and percentages say what was not checked, instead of repeating the direction
+  message.
+* Ratio wording ("doubled the odds", "a 3-fold increase"), interval ends ("could be as
+  large as 2.5"), "not associated with" and size words after a longer subject are
+  checked. These rules were written on the second trial's sentences, before the third
+  trial's sentences existed, and were not changed after it.
+* After an independent review of this branch: "neither ... nor" items stop at clause
+  boundaries so later claims are checked, and items about another outcome or margin get
+  a check; ratios are compared only when odds, risk, rate or hazard match the log scale,
+  are never marked consistent (order not verified) and conflict only when ruled out in
+  both orders; "as high as" / "as low as" use the matching interval end and sign;
+  unrecognised ratio wording no longer raises. The release workflow can only be started
+  by the owner with a typed confirmation; the notebook installs this branch.
+* After checking sentences from six published studies: the printed result lists
+  conflicts first and parts that could not be verified separately
+  (`[1 conflict, 2 to verify]`), with `.conflicts` and `.to_verify`; `declare()` takes
+  `design=` and `subgroup=`; `analyze(..., ratio=True)` takes a published ratio and its
+  interval as printed, and the symmetry check allows for rounding; counts, time points
+  and group shares are listed as not checked; "does not prove" is a caution; outcome
+  names such as "cause-specific mortality" and study sizes such as "a large study" are
+  no longer read as claims.
+* Before release: printed output fits Windows code pages (an "approximately equal" sign
+  broke printing to a redirected Windows console); the rounding allowance assumes one
+  printed precision; a note says when the midpoint replaces a given estimate; design
+  aliases (RCT, cohort, ...); `VALIDATION.md` and `examples/published_results.py`.
+* After review of the release candidate (draft pull request #1): `baseline=` is refused
+  for ratios and log-scale units (it gave a relative change of about -90% for a risk
+  ratio of 0.83; the reconstructed geometric midpoint 0.8352 implies about -16.5%),
+  and `ratio=True` reports the ratio and the relative change with its interval when
+  safely representable; the note on an estimate that differs from the interval's
+  midpoint gives the gap and the assumptions used by the rounding heuristic;
+  "the difference in p-values was 0.01" and "the p-values differed" get a check instead
+  of being read as one p-value; a size qualifier after "neither equivalence nor an effect"
+  stops at a conjunction or verb, so later claims ("and prove the treatment caused harm
+  for everyone") are checked one by one.
+* After follow-up review of `c237c3d`: the baseline guard also covers `analyze_paired()`
+  and common log2/log10/lnRR labels. Ratio-scale display uses adaptive precision and
+  safely omits unrepresentable conversions rather than crashing or printing infinity.
+  Float inputs cannot establish printed precision or the reason for a midpoint gap;
+  `raw_input["estimate_vs_midpoint"]["explained_by_rounding"]` is now `None` rather
+  than a Boolean, with the assumed allowance recorded separately. The input CI level
+  is distinguished from the displayed test CI level. `ratio=True` rejects explicit
+  non-natural or ambiguous log bases; the linter requests review for factor claims on
+  such bases and avoids converting percentage points against recognized log/ratio
+  units. Numeric p-value differences request review instead of being compared with an
+  effect CI; selected coordinated-negation patterns stop at standalone/em dashes so
+  subsequent claims are not consumed. Unit-name recognition, natural-language parsing
+  and floating-point representations remain limited; see `KNOWN_ISSUES.md`.
+* Public-trial files: Colab quick-start notebook, an issue form for sentences the
+  checker gets wrong, CI on macOS and Windows, a manually started and approved release
+  workflow (TestPyPI or PyPI), `SECURITY.md`, `CODE_OF_CONDUCT.md`, and an AI-use
+  statement in the README.
+
+## 0.4.3.dev0 (unreleased comparison-safety branch)
+
+* Bind a restricted set of exact English group and time-order sentences to the
+  user-declared outcome and `A minus B` contrast; selected ambiguous comparisons,
+  signed numbers and direction-bearing negations ask for human review instead.
+  Binding is withheld for SciPy inputs and nonzero or unresolved nulls. Metadata
+  are not verified against the data, and unrecognized wording can still lead to a
+  misleading judgment. See `KNOWN_ISSUES.md`.
+* Added independent regression cases for reversed groups and time points, compound
+  claims, signed values, and reconstructed nulls. These are targeted tests, not an
+  estimate of real-world sentence-checker accuracy.
+* Added empty human-review templates and Arabic instructions. No real case data or
+  human ratings are included; a pilot and separate held-out evaluation remain needed.
+* Distinguished the development version from the previous 0.4.2 snapshots. No public
+  release or tag is implied.
+
+## Unreleased validation-observations branch
+
+* Added NIST Longley coefficient/SE regression checks, inference tests from five
+  frozen real-data summaries, and the external sleep review's named-test cases.
+  These are targeted tests, not independent human validation or an accuracy measure.
+* Added partial, conservative unit checks for simple units adjacent to effect numbers;
+  mismatched units request review and are not automatically converted. Other units and
+  phrasings may remain unchecked.
+* Improved several targeted coefficient, negation, undefined-size, probability-tail,
+  threshold-display, null-provenance and paired-integer cases. Lossy integral inputs
+  and critical values that fail a self-consistency check are refused. Extreme numerical
+  accuracy is not guaranteed; see `KNOWN_ISSUES.md`.
+* Narrow nonzero confidence intervals get enough displayed digits to avoid collapsing
+  solely through formatting; already-collapsed machine-precision intervals are disclosed.
+
+## 0.4.2 (unreleased)
+
+Fixes from the first-user experiment (three real datasets), its independent review, and
+`KNOWN_ISSUES.md` for 0.4.1.
+
+**Sentence linter**
+
+* p-values and "significant" / "not significant" are bound to the test named in the
+  same phrase, before or after the p-value, for equalities and inequalities. A p-value
+  that matches a test named elsewhere in the sentence gives `check`; naming two tests
+  together gives `check`.
+* "Percentage points" are rescaled when the result is stored as a proportion
+  (0.9 percentage points = 0.009).
+* "Did not differ significantly" is read as non-significance, not as "no effect" plus
+  "significant".
+* A direction noun that names the outcome ("effect on grade improvement", or the
+  declared outcome's own wording) is not read as a direction claim.
+* "Equivalently" is recognised; "within ±0.02" is checked against the declared bounds;
+  "was A to B" is read as an interval.
+* Acronyms ("PSI", "SVM's") and words of the declared outcome or scope inside a hedge
+  are treated as names, not unchecked content.
+
+**Statistics and inputs**
+
+* Every decision is computed from a test statistic in which the bound is subtracted
+  before dividing by the standard error; `Thresholds.decision()` uses the same
+  arithmetic. Decisions and p-values now agree near a threshold.
+* SciPy null reconstruction uses a tolerance tied to machine precision. Some small
+  nonzero null values can still be recorded as zero; see `KNOWN_ISSUES.md`.
+* Malformed reported p-values are refused; tiny p-values are compared on the log scale;
+  inputs too large for floating point are refused.
+* `analyze_paired` records the number of differing items and adds a caution when fewer
+  than 10 items differ.
+
+**Docs**
+
+* `KNOWN_ISSUES.md` lists what 0.4.2 fixed and what remains.
+
+**After independent review of the release-0.4.2 branch**
+
+* A p-value or significance word in a clause that names another test is never marked
+  consistent with the zero test (`"For the equivalence test, p = 0.011."` gives `check`).
+  Contrastive conjunctions ("but", "whereas", "while") end a clause.
+* Percentage points are converted only for proportion units and only for numbers
+  attached to "percentage points"; other units give `check`; an unattached number that
+  fits only after conversion gives `check`, not `conflict`.
+* A negation excuses direction words only in its own clause. Size words separated from
+  their noun ("a small but significant decrease") are read as size claims.
+* Printed threshold cut-offs were adjusted to align with `thresholds.decision()` in the
+  reported examples; further edge cases remain (see `KNOWN_ISSUES.md`).
+* Some small null values that may be unresolvable now receive a note; a
+  reported p = 0 is accepted only with a matching statistic and a note; tiny baselines
+  that overflow the relative change are refused; several paired large-integer cases now
+  preserve their differences. Further null, p-value and mixed-integer edge cases remain.
+
+## 0.4.1
 
 Fixes from the final review of 0.4.0. One changed numerical results: SciPy results
 on data far from zero relative to their spread (for example 1e14 +/- 0.3).
