@@ -578,6 +578,27 @@ def _bounded(text: str, start: int, end: int, breaks) -> str:
     return text[left:m.start() if m else len(text)]
 
 
+_BIND_BREAK = re.compile(r"[,;()\[\]]|\.(?!\d)|\b(?:and|but|whereas|while|although|though|however|yet|despite|"
+                         r"unlike|whose|which)\b")
+_LEADING_PREP = re.compile(r"^\s*(?:for|in|from|with|using|by|under|on)\s+(?:the\s+|a\s+|an\s+|its\s+|their\s+)?",
+                           re.I)
+_TRAILING_PREP = re.compile(r"^[\s\w-]{0,40}?\b(?:in|for|from|on|by|with|using|under)\s+"
+                            r"(?:the\s+|a\s+|an\s+|its\s+|their\s+)?$", re.I)
+
+
+def _test_mentions(text: str, offset: int):
+    """Test names in text as (start, end, name); of overlapping names the earliest wins
+    ("the permutation test of zero" is a permutation test)."""
+    found = sorted((m.start() + offset, m.end() + offset, n)
+                   for n, pat in _ALL_TESTS.items() for m in pat.finditer(text))
+    out = []
+    for x in found:
+        if out and x[0] < out[-1][1]:
+            continue
+        out.append(x)
+    return out
+
+
 def _named_test(original: str, start: int, end: int) -> Tuple[Optional[str], bool]:
     """The test a p-value or significance word refers to, from the words around it.
 
@@ -586,41 +607,41 @@ def _named_test(original: str, start: int, end: int) -> Tuple[Optional[str], boo
     test is assumed); named_elsewhere says that another part of the clause names a test, so
     a match may be a binding problem rather than a fact about this result.
 
-    Within the hit's segment the nearest test named before the hit wins ("the one-sided
-    test was significant despite the equivalence test giving p = ..." binds "significant"
-    to the one-sided test and the p-value to the equivalence test); with none before it,
-    a single test named after it in the same segment is used.
+    Binding, in order: the nearest test named before the hit in its part of the sentence
+    (parts end at punctuation and at words such as "and", "whereas", "despite", "whose");
+    a test named just after it with a preposition ("significant in the equivalence test");
+    an opening phrase of the previous part ("For the zero test, p = ..."; then a match is only
+    "to verify", because the binding crosses a comma); the words before
+    a parenthesis ("the equivalence test (p = 0.77)").
     """
-    left = max((m.end() for m in _SEGMENT_BREAK.finditer(original, 0, start)), default=0)
-    m_right = _SEGMENT_BREAK.search(original, end)
-    right = m_right.start() if m_right else len(original)
-    seg = original[left:right]
-    if _BOTH_TESTS.search(seg):
+    wide = _bounded(original, start, end, _SEGMENT_BREAK)
+    if _BOTH_TESTS.search(wide):
         return "ambiguous", False
-
-    def mentions(text, offset):
-        out = []
-        for n, pat in _ALL_TESTS.items():
-            out += [(m.start() + offset, m.end() + offset, n) for m in pat.finditer(text)]
-        return out
-
-    found = mentions(seg, left)
+    left = max((m.end() for m in _BIND_BREAK.finditer(original, 0, start)), default=0)
+    m_right = _BIND_BREAK.search(original, end)
+    right = m_right.start() if m_right else len(original)
+    found = _test_mentions(original[left:right], left)
     before = [x for x in found if x[1] <= start]
     if before:
-        return max(before, key=lambda x: x[1])[2], False
-    after = {n for s0, e0, n in found if s0 >= end}
-    if len(after) > 1:
-        return "ambiguous", False
-    if after:
-        return after.pop(), False
+        return before[-1][2], False
+    for s0, e0, n in found:
+        if s0 >= end and _TRAILING_PREP.match(original[end:s0]):
+            return n, False
+    if left > 0 and original[left - 1] == ",":
+        prev_left = max((m.end() for m in _BIND_BREAK.finditer(original, 0, left - 1)), default=0)
+        prev = original[prev_left:left - 1]
+        lead = _test_mentions(prev, prev_left)
+        if lead and _LEADING_PREP.match(prev):
+            # bound across a comma: a mismatch is reported, a match is left to verify
+            return lead[-1][2], True
     # "The equivalence test was not significant (p = 0.77)": a parenthesis belongs to
     # the words just before it, back to the previous comma or semicolon.
     if left > 0 and original[left - 1] == "(":
         lead_start = max((m.end() for m in re.finditer(r"[,;]|\.(?!\d)|\b(?:but|and|while|whereas)\b",
                                                        original[:left - 1])), default=0)
-        lead = mentions(original[lead_start:left - 1], lead_start)
+        lead = _test_mentions(original[lead_start:left - 1], lead_start)
         if lead:
-            return max(lead, key=lambda x: x[1])[2], False
+            return lead[-1][2], False
     clause = _bounded(original, start, end, _CLAUSE_BREAK)
     return None, any(pat.search(clause) for pat in _ALL_TESTS.values())
 
@@ -858,15 +879,24 @@ def _scan(sentence: str, ctx: Context):
         hits.append(_Hit("caution", m.group(0).strip(), m.start(), m.end(),
                          {"orig": _span(sentence, idx, m.start(), m.end())[0]}))
         blank(m.start(), m.end())
-    # Interval statements that mention "no effect" without claiming it.
-    for m in list(_NEITHER_SHOW_NOR_RULE_OUT.finditer(text)):
-        hits.append(_Hit("inconclusive", m.group(0).strip(), m.start(), m.end(),
-                         {"orig": _span(sentence, idx, m.start(), m.end())[0]}))
-        blank(m.start(), m.end())
-    for m in list(_COMPATIBLE_BOTH.finditer(text)):
-        hits.append(_Hit("compatible", m.group(0).strip(), m.start(), m.end(),
-                         {"orig": _span(sentence, idx, m.start(), m.end())[0]}))
-        blank(m.start(), m.end())
+    # Interval statements that mention "no effect" without claiming it. They are matched
+    # with parenthetical asides set aside, and only the words outside an aside are blanked,
+    # so "(the treatment caused harm)" inside one is still checked on its own.
+    for cat, pat in (("inconclusive", _NEITHER_SHOW_NOR_RULE_OUT), ("compatible", _COMPATIBLE_BOTH)):
+        asides = [(a.start(), a.end()) for a in re.finditer(r"\([^()]*\)", text)]
+        bare = list(text)
+        for a0, a1 in asides:
+            bare[a0:a1] = " " * (a1 - a0)
+        bare = "".join(bare)
+        for m in list(pat.finditer(bare)):
+            phrase = re.sub(r"\s+", " ", m.group(0)).strip()
+            hits.append(_Hit(cat, phrase, m.start(), m.end(), {"orig": _span(sentence, idx, m.start(), m.end())[0]}))
+            pos = m.start()
+            for a0, a1 in asides:
+                if m.start() <= a0 and a1 <= m.end():
+                    blank(pos, a0)
+                    pos = a1
+            blank(pos, m.end())
     # Neither equivalence nor an effect is not a no-effect or positive-equivalence
     # claim. Request review instead of asserting that the clause is verified.
     for m in _NEITHER_EQUIVALENCE.finditer(original):
@@ -1041,26 +1071,19 @@ _COMPATIBLE_BOTH = re.compile(
     r"(?:effect|difference|association)\b"
     r"(?:\s*,?\s+(?:and|or)\s+(?:with\s+)?(?:an?\s+)?(?:effects?|differences?|benefits?|gains?)\s+"
     r"(?:larger|greater|bigger|exceeding|beyond|above|more|as\s+large\s+as|of\s+up\s+to|up\s+to)\b"
-    r"(?:\s+(?!(?:and|but|so|which|that|while|whereas|although|because)\b)(?:[^\s.;,:()]|\.(?=\d))+){0,6})?")
+    r"(?:\s+(?!(?:and|but|so|yet|though|thus|hence|therefore|which|that|while|whereas|although|because|"
+    r"showing|proving|suggesting|indicating|so)\b)(?:[^\s.;,:()\[\]]|\.(?=\d))+){0,6})?")
 # "the data neither show an effect nor rule out a meaningful one": a statement that the
 # result is inconclusive, not a claim of no effect.
 _NEITHER_SHOW_NOR_RULE_OUT = re.compile(
     r"\bneither\s+(?:show|shows|showed|shown|demonstrate[sd]?|establish(?:es|ed)?|detect(?:s|ed)?|find|finds|found|"
     r"confirm(?:s|ed)?)\s+(?:an?\s+|any\s+)?(?:clear\s+|significant\s+|real\s+)?"
-    r"(?:effect|difference|benefit|association)\b(?:\s+(?!nor\b)[^\s.;]+){0,8}?\s*,?\s+nor\s+(?:rule|rules|ruled)\s+"
+    r"(?:effect|difference|benefit|association)\b(?:\s+(?!nor\b)[^\s.;,:\[\]]+){0,8}?\s*,?\s+nor\s+(?:rule|rules|ruled)\s+"
     r"out\s+(?:an?\s+|any\s+)?(?:(?:meaningful|important|large|relevant|clinically\s+\w+|practically\s+\w+)\s+)?"
     r"(?:one|effects?|differences?|benefits?)\b")
 _CAUTION_SPAN = re.compile(r"\b(?:not|cannot|never)\s+(?:\w+\s+){0,2}?(?:prove[sdn]?|proof|imply|implies)\b|"
                            r"n't\s+(?:\w+\s+){0,2}?(?:prove|imply)\b")
 _CAUTION = re.compile(_CAUTION_SPAN.pattern + r"|\bwhether\b[^.;]*\bcaus|\bcaus\w*[^.;]*\bcannot be (?:determined|established)")
-_SUBGROUP_GENERIC = set("""patients patient people participants participant those who were was are is receiving received
-receive taking took given with without among only either group groups subgroup subgroups adults children women men
-the a an of in on for and or not no non any all some""".split())
-
-
-def _subgroup_words(text: str) -> set:
-    return {w for w in re.findall(r"[a-z][a-z-]+", text.lower()) if len(w) > 2 and w not in _SUBGROUP_GENERIC}
-
 
 _COUNT_NOUNS = (r"(?:patients?|participants?|subjects?|people|persons?|individuals?|women|men|children|adults|"
                 r"cases?|deaths?|studies|trials?|centres?|centers?|hospitals?|sites?|items?|questions?|cups?|"
@@ -1241,7 +1264,7 @@ def _judge_hit(h: _Hit, ctx: Context, sign: Optional[int]) -> Tuple[str, str]:
                              f"evidence comes from {where} only.")
         return CONFLICT, f"The evidence comes from {where} only; it does not show the effect holds beyond it."
 
-    if cat == "caution" or (cat in ("certainty", "causal") and _CAUTION.search(h.data.get("clause", "") or h.phrase)):
+    if cat == "caution" or (cat == "certainty" and _CAUTION.search(h.data.get("clause", "") or h.phrase)):
         return CONSISTENT, "A caution (the data do not prove or imply this), not a claim."
 
     if cat == "certainty":
@@ -1249,28 +1272,25 @@ def _judge_hit(h: _Hit, ctx: Context, sign: Optional[int]) -> Tuple[str, str]:
                          f"({z}), not a single exact value.")
 
     if cat == "causal":
+        if _CAUTION.search(h.data.get("clause", "") or h.phrase):
+            return CHECK, ("This causal wording may be part of a caution, but its scope is not verified. "
+                           "Check whether it asserts a causal claim and review that claim by hand.")
         if ctx.design == "observational":
             return CONFLICT, ("Causal wording, but the plan declares an observational design: the result shows an "
                               "association. (A causal design with stated assumptions would need to be described.)")
         if ctx.design == "randomised":
-            if ev.differs_from_zero:
-                return CONSISTENT, (f"Randomised design (as declared) and an established average effect ({z}); "
-                                    f"causal wording about that average effect is supported.")
-            return CHECK, (f"Randomised design (as declared), but the effect is not established ({z}); causal "
-                           f"wording overstates it.")
-        return CHECK, ("Whether causal wording is warranted depends on the design (randomisation, confounding), "
-                       "which statwarrant does not know. Declare design='randomised' or 'observational'.")
+            design_note = (f"The design is declared randomised and the average effect is "
+                           f"{'established' if ev.differs_from_zero else 'not established'} ({z}). ")
+        else:
+            design_note = "The design was not declared. "
+        return CHECK, (design_note + "statwarrant does not verify that the claim's intervention, outcome, contrast "
+                       "and scope match the result, or that causal assumptions hold; check them by hand.")
 
     if cat == "subgroup":
         if ctx.subgroup:
-            said = _subgroup_words(h.data.get("clause", "") or h.phrase)
-            declared = _subgroup_words(ctx.subgroup)
-            negated = (lambda t: bool(re.search(r"\b(?:not|no|non|without)\b|n't", t.lower())))
-            if said & declared and negated(h.data.get("clause", "")) == negated(ctx.subgroup):
-                return CONSISTENT, (f"The result is declared as a subgroup result ({ctx.subgroup}), and the sentence "
-                                    f"names it ({', '.join(sorted(said & declared))}).")
-            return CHECK, (f"The result is declared for the subgroup '{ctx.subgroup}'; the sentence may name a "
-                           f"different one.")
+            return CHECK, (f"The result is declared for the subgroup '{ctx.subgroup}', but statwarrant cannot "
+                           "verify which group this wording describes. Compare the whole wording, including other "
+                           "groups and negations, with the analysis by hand.")
         return CHECK, ("The result is the average difference between the compared conditions. A claim about one "
                        "group alone, or about a subgroup, needs its own analysis. If the result is itself a subgroup "
                        "result, declare subgroup='...'.")
@@ -2056,9 +2076,9 @@ _ACTION = {
     "nonzero": "Check the zero test.",
     "generalization": "Limit the claim to the declared scope and to the average effect.",
     "certainty": "Replace certainty wording with the interval.",
-    "causal": "Check that the design supports causal language (randomisation, no confounding).",
+    "causal": "Check the intervention, outcome, contrast and scope against the result, and verify causal assumptions.",
     "vague_result": "State the direction, the interval and what was tested.",
-    "subgroup": "Analyse the subgroup or group separately before claiming anything about it.",
+    "subgroup": "Verify the stated group against the analysis; analyse it separately if necessary.",
     "bayesian_wording": "Use frequentist wording for a confidence interval, or run a Bayesian analysis.",
     "probability_misreading": "Rephrase: the interval or p-value does not give this probability.",
     "direction": "Check the direction against the interval.",
@@ -2208,7 +2228,7 @@ def check_sentence(sentence: str, ctx: Context) -> CheckResult:
                 return CHECK, (f"{reason} Read as percentage points it would fit; say which scale this number "
                                f"is on.")
         if (h.category in ("p_value", "significance", "nonsignificance", "evidence_absent", "marginal")
-                and status == CONSISTENT and h.data.get("named") is None and h.data.get("named_elsewhere")):
+                and status == CONSISTENT and h.data.get("named_elsewhere")):
             return CHECK, (f"{reason} But this clause also names another test, so statwarrant cannot be sure "
                            f"this refers to the test of difference from zero; name the test next to it.")
         if "unit" in h.data:

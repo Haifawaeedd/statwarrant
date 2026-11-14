@@ -224,10 +224,13 @@ sw.declare(..., design="randomised")      # or "observational"; used to judge ca
 sw.declare(..., subgroup="patients on mechanical ventilation")   # the result is a subgroup result
 ```
 
-Both are your own description, reported and never verified. With `design="randomised"`,
-causal wording about an established average effect is not flagged; with
-`"observational"` it is a conflict. With `subgroup`, a sentence naming that subgroup is
-not flagged as a subgroup claim.
+Both are your own description, reported and never verified. With `"observational"`,
+causal wording is a conflict. Otherwise causal wording is always "to verify": the design
+helps, but statwarrant cannot check that the intervention, outcome and scope in the
+sentence match the result ("the treatment caused cancer" for an exam-score result). With
+`subgroup`, a subgroup claim is also "to verify", with the declared subgroup named, because
+a word overlap cannot show which group is meant ("women with diabetes" against "men with
+diabetes").
 
 ### Comparing two models on the same test items
 

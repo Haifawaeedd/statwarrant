@@ -192,7 +192,8 @@ remaining cases below. This is not independent human validation.
 * **Named tests across a comma.** `"For the equivalence test, p = 0.011."` (zero-test
   p = 0.0111, equivalence-test p = 0.7719) now gives `check`: when the clause names
   another test, a p-value or significance word is never marked consistent with the zero
-  test.
+  test. (Changed in 0.5.1: an opening "For the ... test," now binds to that test, so this
+  sentence is a `conflict`; a matching p-value there is still only `check`.)
 * **Percentage points.** Conversion happens only when the declared units are a
   proportion (`accuracy`, `proportion`, `rate`, `probability`, `recall`, `AUC` and
   similar) and only for numbers attached to "percentage points" (or an interval in the

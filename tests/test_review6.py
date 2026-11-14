@@ -26,7 +26,9 @@ def std():
 # ---- named tests -------------------------------------------------------------------------
 
 @pytest.mark.parametrize("sentence,level", [
-    ("For the equivalence test, p = 0.011.", "check"),          # the documented case
+    # 0.5.1: an opening "For the ... test," binds across the comma. A mismatch is reported
+    # (the equivalence test gives p = 0.77); a match stays "to verify".
+    ("For the equivalence test, p = 0.011.", "conflict"),
     ("For the equivalence test, p = 0.77.", "check"),
     ("For the equivalence test, the result was significant.", "check"),
     ("The difference was significant (p = 0.011), but the equivalence test gave p = 0.77.", None),

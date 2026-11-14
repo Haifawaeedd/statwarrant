@@ -31,6 +31,16 @@
   0.000063" was called consistent with the zero test). Naming "the zero test" ties a
   p-value to it. Found in the claim-binding review (draft pull request #2); regression
   tests: `tests/test_test_binding_051.py`.
+* After the review of the 0.5.1 candidate (draft pull request #3): a p-value or
+  "significant" binds to a test named after it with a preposition ("significant in the
+  equivalence test") and through an opening phrase ("For the zero test, p = ...": a
+  mismatch is a conflict, a match is "to verify"); parts of a sentence end at words such as
+  "whereas", "despite" and "whose"; of overlapping test names the first wins ("the
+  permutation test of zero" is a permutation test). Causal wording is never "consistent"
+  (still a conflict with `design="observational"`), and a subgroup claim is always "to
+  verify", as in draft pull request #2: statwarrant cannot check the outcome or group the
+  wording names. A claim inside a parenthetical aside, or after "yet", within an interval
+  statement is checked on its own. Regression tests: `tests/test_review_v2_051.py`.
 * The README install line is `pip install statwarrant` (the package is on PyPI).
 * Regression tests: `tests/test_significance_both_orders_051.py`.
 
