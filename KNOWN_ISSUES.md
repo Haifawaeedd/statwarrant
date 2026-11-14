@@ -1,8 +1,26 @@
-# Known issues in statwarrant 0.5.0 (experimental alpha)
+# Known issues in statwarrant 0.5.1 (experimental alpha)
 
 These are known, unresolved issues. The examples are targeted checks, not estimates
 of how often errors occur. Use statwarrant as an aid, not an automated validator;
 independently check calculations and the full text of research claims.
+
+## Changed in 0.5.1, with limitations
+
+A claim of significance is now a `conflict` when the zero test is not significant, even
+inside a comparison that cannot be tied to the declared contrast (see `CHANGELOG.md`).
+Regression tests are in `tests/test_significance_both_orders_051.py`. Limitations:
+
+* statwarrant still cannot tell which comparison a sentence is about. "Group C scored
+  significantly higher than group D", about groups outside the declared contrast, now
+  gets a `conflict` for a non-significant result, as any significance wording already did
+  when no comparison word was present. A conflict can itself be mistaken; check it.
+* The negation and hedge guard is a short word list read back to the previous clause
+  boundary ("not", "no", "failed to", "whether", "unclear", "cannot", ...). Other
+  phrasings that deny or question significance can still give a false `conflict`, and a
+  listed word that does not negate the significance claim ("Not only did ...") turns it
+  into "to verify".
+* Sentences checked in earlier trials were not re-run on this version; the counts below
+  describe the versions named there.
 
 ## Review of the 0.5.0 release candidate
 

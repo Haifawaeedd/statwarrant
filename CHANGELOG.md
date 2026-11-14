@@ -1,6 +1,21 @@
 # Changelog
 
-## 0.5.0
+## 0.5.1
+
+* A claim of significance ("significantly improved", "significantly different between the
+  groups", "scored significantly higher than ...") is a **conflict** when the test of
+  difference from zero is not significant, whichever way the comparison runs. In 0.5.0 it
+  got only "to verify" whenever the comparison could not be tied to the declared contrast:
+  the quick start's own sentence, "The new method significantly improved scores.", was not
+  flagged for a non-significant result (p = 0.258), and declaring the contrast or passing a
+  SciPy result weakened the warning that estimate + SE without a contrast gave. This is the
+  rule already used for ratios: a conflict when ruled out in both orders. With a
+  significant result the order still decides, so those claims stay "to verify".
+* Significance wording after a negation or hedge in its clause ("failed to significantly
+  improve", "whether ... significantly improved ...") is "to verify" instead of a false
+  conflict.
+* The README install line is `pip install statwarrant` (the package is on PyPI).
+* Regression tests: `tests/test_significance_both_orders_051.py`.
 
 First public trial release. Built on the comparison-safety branch (commit 8ad4164)
 after the third user trial, two external reviews and a check on sentences from six

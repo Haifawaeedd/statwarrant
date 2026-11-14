@@ -1039,6 +1039,23 @@ _UNBOUND_WHAT = {
 }
 
 
+_SIGNIFICANCE_HEDGE = re.compile(r"\b(?:not|no|never|without|whether|if|unclear|unknown|uncertain|cannot|"
+                                 r"unable\s+to|fail(?:s|ed|ing)?\s+to|lack(?:s|ed|ing)?|neither|nor)\b|n't\b")
+
+
+def _significance_hedge(h: "_Hit") -> Optional[str]:
+    """A negation or hedge before a significance word in the same clause, or None.
+
+    The scanner reads "significantly" on its own unless an exact non-significance
+    pattern matched first, so "failed to significantly improve" or "whether ...
+    significantly improved" would otherwise be read as a claim of significance.
+    """
+    before = h.data.get("before", "")
+    left = max((m.end() for m in _SEGMENT.finditer(before)), default=0)
+    m = _SIGNIFICANCE_HEDGE.search(before[left:])
+    return m.group(0) if m else None
+
+
 def _judge_hit(h: _Hit, ctx: Context, sign: Optional[int]) -> Tuple[str, str]:
     ev = ctx.evidence
     has_sesoi = ev.sesoi is not None
@@ -1138,6 +1155,14 @@ def _judge_hit(h: _Hit, ctx: Context, sign: Optional[int]) -> Tuple[str, str]:
 
     if cat == "significance":
         if not ev.differs_from_zero:
+            cue = _significance_hedge(h)
+            if cue:
+                # "failed to significantly improve", "whether ... significantly": the
+                # sentence may already say the result is not significant.
+                return CHECK, (f"The difference from zero is not statistically significant ({z}, "
+                               f"p = {fmt_p(ev.p_zero)}). This significance wording follows '{cue}' in its "
+                               f"clause and may be negated or hedged; statwarrant does not read that. "
+                               f"Check it by hand.")
             return CONFLICT, f"The difference from zero is not statistically significant ({z}, p = {fmt_p(ev.p_zero)})."
         if sign in (1, -1) and sign != ev.direction:
             return CONFLICT, "The result is significant, but in the opposite direction to the one stated."
@@ -2078,6 +2103,16 @@ def check_sentence(sentence: str, ctx: Context) -> CheckResult:
         if h.category == "comparison_unbound":
             return CHECK, review_reason
         if unbound:
+            # A claim of significance cannot be true in either order when the zero test is
+            # not significant at all, so it does not depend on binding the comparison (the
+            # same rule as for ratios: a conflict when ruled out in both orders).
+            if (h.category == "significance" and not ctx.evidence.differs_from_zero and
+                    h.data.get("named") is None and not h.data.get("named_elsewhere") and
+                    not h.data.get("in_outcome") and not h.data.get("multiple_models")):
+                status, reason = judge(h)
+                if status == CONFLICT:
+                    return CONFLICT, (f"{reason} This holds whichever way the comparison runs, so it does not "
+                                      f"depend on the declared contrast.")
             role = _number_hit_role(h, original, ctx) if h.category == "number" else None
             if (h in embedded or h.category in ("importance", "big", "significance", "nonsignificance", "evidence",
                                                 "evidence_absent", "marginal", "small", "magnitude", "percentage",
