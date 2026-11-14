@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased (0.5.1.dev0)
+
+* Recognised subgroup wording now requires manual review rather than being marked
+  consistent on the basis of overlapping words. This includes apparently exact matches.
+* Recognised causal wording in a declared randomised study now requires manual review;
+  a declared design and statistical significance do not verify the intervention,
+  outcome, contrast, scope, or assumptions. Existing caution and observational-design
+  rules retain limitations described in KNOWN_ISSUES.md.
+* For recognised significance wording in an unbound comparison, the checker now
+  reports the result's two-sided test p-value and alpha in a `check` explanation,
+  with a reminder to verify the original reference null.
+  When that test is non-significant it describes a conflict only **conditionally** on
+  the sentence asserting significance for the same test, result and threshold; it
+  does not establish that identity. Detection and binding remain incomplete; the
+  status rules for other wording were not broadened.
+
+These changes are not in the published 0.5.0 release. Recognition remains partial;
+the new targeted tests are not a measure of accuracy on unseen sentences.
+
 ## 0.5.0
 
 First public trial release. Built on the comparison-safety branch (commit 8ad4164)

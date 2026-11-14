@@ -4,6 +4,89 @@ These are known, unresolved issues. The examples are targeted checks, not estima
 of how often errors occur. Use statwarrant as an aid, not an automated validator;
 independently check calculations and the full text of research claims.
 
+## Unreleased significance-review changes and remaining limitations
+
+In the `0.5.1.dev0` development snapshot, recognised significance wording in an
+unbound comparison asks for review and displays this result's two-sided test p-value
+and alpha. This is the test relative to the selected effect's reference null; the
+original reference null may be nonzero, reconstructed or unknown. If that test is
+non-significant, the explanation says the sentence
+would conflict only **if** it asserts significance for that same test, result and
+threshold. The linter does not establish those links, or that the sentence actually
+asserts a finding. For the non-significant `examples/quickstart.py` result, the sentence
+`The new method significantly improved scores` receives `check`, not `conflict`.
+This is a stronger explanation than 0.5.0's generic `check`, not a general fix for
+binding significance statements.
+
+The targeted examples `We hypothesised that the new method would significantly
+improve scores`, `Previous studies found that the method significantly improved
+scores`, and `The new method was expected to significantly improve scores, but it
+did not` also receive `check` for the comparison in the tested setup. Other phrasings,
+such as significance statements without a recognised comparison cue, can still be
+misread as claims about this result. The limited test-name and hedge patterns can miss
+different tests, one-sided tests, populations, results, or negations; punctuation,
+conjunctions and the bounded preceding context can interrupt a hedge. A hedge cue may
+itself apply to another phrase (for example, `not only`), leading to unnecessary
+review. This change does not add a general hedge parser: `Whether the result was
+statistically significant is unclear` can still be judged as an affirmative assertion.
+An estimate entered without a contrast can still give a `conflict` for an unrelated
+comparison instead of `check`. The older sentence-wide unbound rule can also turn an
+independent, later significance or named-test conflict into `check` when an earlier
+clause has an unbound comparison. These remaining limitations are recorded in
+expected-failure regression tests.
+
+For example, `The non-inferiority test was significant` can be marked
+`significance: consistent` with `no_warnings` when the zero test is significant,
+without verifying a non-inferiority test. With `outcome="exam score"`, no declared
+contrast, and a significant result, `The new method significantly improved mortality`
+can also return `no_warnings` and `significance: consistent` without matching the
+outcome. These are unresolved false assurances, not approval of those claims. A positive
+or negative decision applies only to the library's own test and declared alpha; it does
+not verify the test or threshold described in the sentence. At numerical boundaries the
+new explanation notes when the calculated p-value and test-statistic decision compare
+differently with alpha. Other report displays still round p-values compactly and can
+appear on the opposite side of alpha; examine the underlying result and decision.
+The alpha-level matcher also has a false-assurance gap: with `alpha=0.01` and p about
+0.030, `The effect was statistically significant at the 5% level` can mark `5% level`
+as `alpha-level: consistent` despite the declared 1% threshold. Check any stated
+threshold against the original analysis manually.
+Review the complete claim and analysis manually. These targeted tests do not measure
+accuracy on unseen sentences.
+
+## Published 0.5.0: subgroup and causal false assurances
+
+The version 0.5.0 available on PyPI can mark a subgroup as consistent because a
+single word overlaps: a result declared for men with diabetes can incorrectly mark
+wording about women with diabetes consistent. It can also mark `caused` consistent
+just because the declared design is randomised and the result is significant, even
+when the sentence names an unrelated cause or outcome. Check the full subgroup,
+intervention, outcome, contrast and design assumptions yourself. An unchecked text
+fragment does not make an incorrect positive explanation safe.
+
+The unreleased 0.5.1.dev0 development snapshot changes recognised subgroup and
+randomised-design causal wording to `check`. It still uses incomplete English
+patterns and may miss a subgroup or causal claim altogether. For example, `in group A`,
+`in patients with T2DM`, or `Women with diabetes had a significant effect` can leave
+the subgroup unchecked, and `The treatment induced cancer` is not recognised as a
+causal claim. In `The treatment resulted in men with cancer`, the original overlapping
+patterns can recognise the subgroup cue while missing `resulted in` as a causal cue;
+a subgroup warning does not verify the causal claim. A `no_warnings` result can still
+include unchecked text and is not a clearance. The library does not verify study
+metadata or establish causality. Negations and caution scopes remain heuristic;
+observational causal warnings can themselves be wrong. Additional manual review
+remains necessary.
+
+An additional pre-existing limitation affects both 0.5.0 and this development
+snapshot: with a significant randomised result, `The treatment is the cause of death
+and the effect was statistically significant` can return `no_warnings`, with the
+significance span marked consistent, while `cause of death` is neither checked as a
+causal claim nor listed in `unchecked`. Do not assume that the unchecked list is
+exhaustive. Similarly, `The treatment induced cancer and the effect was significant`
+can have `no_warnings` even though the causal claim is unchecked. In an observational
+study, `The treatment did not cause cancer` can wrongly produce a causal conflict;
+a nearby caution can instead turn a causal conflict into `check`. These are not fixed
+by the two conservative judgment changes and require manual review of the whole text.
+
 ## Review of the 0.5.0 release candidate
 
 A review of the release candidate (draft pull request #1, commit `a5269d0`) reproduced the
@@ -160,8 +243,9 @@ remaining cases below. This is not independent human validation.
 
 * **Named tests across a comma.** `"For the equivalence test, p = 0.011."` (zero-test
   p = 0.0111, equivalence-test p = 0.7719) now gives `check`: when the clause names
-  another test, a p-value or significance word is never marked consistent with the zero
-  test.
+  another **recognised** test, a p-value or significance word is not marked consistent
+  with the zero test by this rule. The name detector is partial; for example a
+  non-inferiority or one-sided test may be missed and can be judged against the zero test.
 * **Percentage points.** Conversion happens only when the declared units are a
   proportion (`accuracy`, `proportion`, `rate`, `probability`, `recall`, `AUC` and
   similar) and only for numbers attached to "percentage points" (or an interval in the

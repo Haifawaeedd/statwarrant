@@ -1,7 +1,7 @@
 cff-version: 1.2.0
 message: "If you use statwarrant, please cite it as below, and cite the methods you rely on."
 title: "statwarrant: what your statistical result warrants you to say"
-version: "0.5.0"
+version: "0.5.1.dev0"
 license: MIT
 repository-code: "https://github.com/Haifawaeedd/statwarrant"
 authors:
