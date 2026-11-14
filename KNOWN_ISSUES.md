@@ -21,6 +21,10 @@ Regression tests are in `tests/test_significance_both_orders_051.py`. Limitation
   into "to verify".
 * Sentences checked in earlier trials were not re-run on this version; the counts below
   describe the versions named there.
+* Test binding uses the nearest test named before a p-value in the same part of the
+  sentence, and a fixed list of test names. A test outside that list, or a p-value whose
+  test is named only in another sentence, is still treated as the zero test; check such
+  p-values by hand.
 * A benefit reported as a positive number for a lower-is-better outcome ("1.9 mmHg in
   favour of the drug", when the estimate is -1.9) is compared as a signed value and gives a
   conflict. Report the signed difference, or check such numbers by hand.

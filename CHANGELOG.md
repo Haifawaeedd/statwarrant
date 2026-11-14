@@ -21,6 +21,16 @@
   experiment on 405 sentences these gave 15 false conflicts on 190 correct sentences (8%);
   after the change, 2 (1%). Each wording still conflicts with a result it does not describe.
   Regression tests: `tests/test_recommended_wording_051.py`.
+* A p-value or "significant" is tied to the test named nearest before it in its part of the
+  sentence. "The one-sided test was significant despite the equivalence test giving
+  p = 0.000063" keeps the conflict on the equivalence test's p-value and leaves "significant"
+  to verify, instead of judging both against the equivalence test. Tests statwarrant does
+  not run (permutation, bootstrap, chi-square, Fisher's exact, interaction, sensitivity,
+  a one-sided test and others) are recognised: a p-value or significance claim tied to one
+  of them is "to verify", never consistent ("the permutation test, whose p-value was
+  0.000063" was called consistent with the zero test). Naming "the zero test" ties a
+  p-value to it. Found in the claim-binding review (draft pull request #2); regression
+  tests: `tests/test_test_binding_051.py`.
 * The README install line is `pip install statwarrant` (the package is on PyPI).
 * Regression tests: `tests/test_significance_both_orders_051.py`.
 

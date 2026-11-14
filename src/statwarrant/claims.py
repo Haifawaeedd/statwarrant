@@ -551,8 +551,20 @@ _TEST_NAMES = {
     "minimal-effect": re.compile(r"\bminim(?:al|um)[- ]effects? (?:tests?|testing|analys[ie]s)\b|\bmet\b|"
                                  r"\btests? (?:of|for) (?:a )?minim(?:al|um) effects?\b"),
 }
+# Tests statwarrant does not run: a p-value or "significant" attached to one of these is not
+# about this result's tests and is left for the reader to check.
+_OTHER_TESTS = re.compile(
+    r"\b(?:permutation|randomi[sz]ation|bootstrap(?:ped)?|chi[- ]?squared?|fisher(?:'s)?(?: exact)?|exact|"
+    r"mann[- ]whitney|wilcoxon|kruskal[- ]wallis|log[- ]rank|likelihood[- ]ratio|wald|anova|f|"
+    r"kolmogorov[- ]smirnov|shapiro[- ]wilk|levene(?:'s)?|interaction|heterogeneity|trend|sensitivity|"
+    r"(?<!two )one[- ]sided|omnibus|post[- ]hoc|tukey(?:'s)?|mcnemar(?:'s)?|cochran(?:'s)?)[- ]"
+    r"(?:tests?|testing|analys[ie]s)\b|"
+    r"\btests? (?:for|of) (?:interaction|heterogeneity|trend)\b|\bp (?:for|of) (?:interaction|heterogeneity|trend)\b")
+_ZERO_TEST = re.compile(r"\bzero[- ]tests?\b|\btests? (?:of|against|for) (?:zero|no (?:difference|effect))\b|"
+                        r"\btests? of (?:the )?difference from zero\b|\bnull[- ]hypothesis tests?\b")
 _BOTH_TESTS = re.compile(r"\b(?:equivalence|minim(?:al|um)[- ]effects?) (?:and|or) (?:equivalence|minim(?:al|um)[- ]effects?) "
                          r"(?:tests?|testing|analys[ie]s)\b")
+_ALL_TESTS = dict(_TEST_NAMES, other=_OTHER_TESTS, zero=_ZERO_TEST)
 _SEGMENT_BREAK = re.compile(r"[,;()\[\]]|\.(?!\d)")
 _CLAUSE_BREAK = re.compile(r";|\.(?!\d)|\b(?:but|whereas|while|although|however)\b")
 # Segments for scoping a negation: commas, semicolons, standalone dashes,
@@ -569,29 +581,48 @@ def _bounded(text: str, start: int, end: int, breaks) -> str:
 def _named_test(original: str, start: int, end: int) -> Tuple[Optional[str], bool]:
     """The test a p-value or significance word refers to, from the words around it.
 
-    Returns (name, named_elsewhere): name is "equivalence", "minimal-effect",
-    "ambiguous" or None (the zero test); named_elsewhere says that another part of the
-    clause names a test, so a mismatch may be a binding problem rather than an error.
+    Returns (name, named_elsewhere): name is "equivalence", "minimal-effect", "zero",
+    "other" (a test statwarrant did not run), "ambiguous" or None (no test named: the zero
+    test is assumed); named_elsewhere says that another part of the clause names a test, so
+    a match may be a binding problem rather than a fact about this result.
+
+    Within the hit's segment the nearest test named before the hit wins ("the one-sided
+    test was significant despite the equivalence test giving p = ..." binds "significant"
+    to the one-sided test and the p-value to the equivalence test); with none before it,
+    a single test named after it in the same segment is used.
     """
-    seg = _bounded(original, start, end, _SEGMENT_BREAK)
+    left = max((m.end() for m in _SEGMENT_BREAK.finditer(original, 0, start)), default=0)
+    m_right = _SEGMENT_BREAK.search(original, end)
+    right = m_right.start() if m_right else len(original)
+    seg = original[left:right]
     if _BOTH_TESTS.search(seg):
         return "ambiguous", False
-    found = [n for n, pat in _TEST_NAMES.items() if pat.search(seg)]
-    if not found:
-        # "The equivalence test was not significant (p = 0.77)": a parenthesis belongs to
-        # the words just before it, back to the previous comma or semicolon.
-        left = max((m.end() for m in _SEGMENT_BREAK.finditer(original, 0, start)), default=0)
-        if left > 0 and original[left - 1] == "(":
-            lead_start = max((m.end() for m in re.finditer(r"[,;]|\.(?!\d)|\b(?:but|and|while|whereas)\b",
-                                                           original[:left - 1])), default=0)
-            lead = original[lead_start:left - 1]
-            found = [n for n, pat in _TEST_NAMES.items() if pat.search(lead)]
-    if len(found) > 1:
+
+    def mentions(text, offset):
+        out = []
+        for n, pat in _ALL_TESTS.items():
+            out += [(m.start() + offset, m.end() + offset, n) for m in pat.finditer(text)]
+        return out
+
+    found = mentions(seg, left)
+    before = [x for x in found if x[1] <= start]
+    if before:
+        return max(before, key=lambda x: x[1])[2], False
+    after = {n for s0, e0, n in found if s0 >= end}
+    if len(after) > 1:
         return "ambiguous", False
-    if found:
-        return found[0], False
+    if after:
+        return after.pop(), False
+    # "The equivalence test was not significant (p = 0.77)": a parenthesis belongs to
+    # the words just before it, back to the previous comma or semicolon.
+    if left > 0 and original[left - 1] == "(":
+        lead_start = max((m.end() for m in re.finditer(r"[,;]|\.(?!\d)|\b(?:but|and|while|whereas)\b",
+                                                       original[:left - 1])), default=0)
+        lead = mentions(original[lead_start:left - 1], lead_start)
+        if lead:
+            return max(lead, key=lambda x: x[1])[2], False
     clause = _bounded(original, start, end, _CLAUSE_BREAK)
-    return None, any(pat.search(clause) for pat in _TEST_NAMES.values())
+    return None, any(pat.search(clause) for pat in _ALL_TESTS.values())
 
 
 def _pair_role(context: str, phrase: str) -> str:
@@ -1110,6 +1141,9 @@ def _judge_hit(h: _Hit, ctx: Context, sign: Optional[int]) -> Tuple[str, str]:
                          f"effects within the {z}.")
 
     named = h.data.get("named")
+    if named == "other" and cat in ("significance", "nonsignificance", "evidence_absent", "marginal"):
+        return CHECK, ("This statement is about another test than the ones statwarrant ran (zero, equivalence, "
+                       "minimal-effect); check it against that test's own result.")
     if named in ("equivalence", "minimal-effect", "ambiguous") and cat in (
             "significance", "nonsignificance", "evidence_absent", "marginal"):
         return _judge_named_test(cat, named, ctx)
@@ -1642,7 +1676,10 @@ def _judge_number(h: _Hit, ctx: Context, sign: Optional[int], known) -> Tuple[st
         named, elsewhere = h.data.get("named"), h.data.get("named_elsewhere")
         if named == "ambiguous":
             return CHECK, "This part names more than one test, so statwarrant cannot tell which p-value is meant."
-        tests = {None: ("zero test", ev.p_zero), "equivalence": ("equivalence test", ev.p_equivalence),
+        if named == "other":
+            return CHECK, ("This p-value belongs to another test than the ones statwarrant ran (zero, equivalence, "
+                           "minimal-effect); check it against that test's own output.")
+        tests = {None: ("zero test", ev.p_zero), "zero": ("zero test", ev.p_zero), "equivalence": ("equivalence test", ev.p_equivalence),
                  "minimal-effect": ("minimal-effect test", ev.p_minimal_effect)}
         name, q = tests[named]
         if q is None:
