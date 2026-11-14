@@ -21,6 +21,15 @@ Regression tests are in `tests/test_significance_both_orders_051.py`. Limitation
   into "to verify".
 * Sentences checked in earlier trials were not re-run on this version; the counts below
   describe the versions named there.
+* A benefit reported as a positive number for a lower-is-better outcome ("1.9 mmHg in
+  favour of the drug", when the estimate is -1.9) is compared as a signed value and gives a
+  conflict. Report the signed difference, or check such numbers by hand.
+* In the reader experiment the rule checker caught 46% of misleading constructed sentences
+  as conflicts. It gave no conflict for reversed direction ("the drug raised blood
+  pressure" when it lowered it), harm described as benefit, "a trend toward" wording, or
+  "large and practically important" without a declared threshold being exceeded; those are
+  left as "to verify". The experiment materials will be published after the human reader
+  study that uses some of the same sentences.
 
 ## Review of the 0.5.0 release candidate
 

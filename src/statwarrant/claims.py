@@ -401,7 +401,9 @@ _WORD_PATTERNS = [
                     r"substantial|notable|appreciable|clinically relevant|clinically meaningful) " + _NOUNS + r"|"
                     r"(?:similar|the same) (?:performance|results|outcomes|effects?|accuracy|scores)|"
                     r"perform(?:s|ed)? (?:similarly|the same|equally))\b"),
-    ("small", r"\b(?:negligibl[ey]|trivial(?:ly)?)\b|"
+    ("small", r"\btoo\s+(?:small|little|minor|slight)\s+to\s+(?:matter|be\s+(?:practically\s+|clinically\s+|"
+              r"educationally\s+)?(?:important|meaningful|relevant|noticeable))\b|"
+              r"\b(?:negligibl[ey]|trivial(?:ly)?)\b|"
               r"\b" + _SMALL + r"(?:,?\s+(?:but|and|yet)?\s*(?!(?:the|a|an|this|that|these|those|its|their|our|his|"
               r"her|was|were|is|are)\b)[a-z-]+){0,2}?\s+" + _NOUNS + r"\b|"
               r"\b" + _NOUNS + r"(?:\s+(?:between|in|of|for|on|across|among|from)(?:\s+[a-z0-9'-]+){1,5}?)?\s+"
@@ -825,6 +827,15 @@ def _scan(sentence: str, ctx: Context):
         hits.append(_Hit("caution", m.group(0).strip(), m.start(), m.end(),
                          {"orig": _span(sentence, idx, m.start(), m.end())[0]}))
         blank(m.start(), m.end())
+    # Interval statements that mention "no effect" without claiming it.
+    for m in list(_NEITHER_SHOW_NOR_RULE_OUT.finditer(text)):
+        hits.append(_Hit("inconclusive", m.group(0).strip(), m.start(), m.end(),
+                         {"orig": _span(sentence, idx, m.start(), m.end())[0]}))
+        blank(m.start(), m.end())
+    for m in list(_COMPATIBLE_BOTH.finditer(text)):
+        hits.append(_Hit("compatible", m.group(0).strip(), m.start(), m.end(),
+                         {"orig": _span(sentence, idx, m.start(), m.end())[0]}))
+        blank(m.start(), m.end())
     # Neither equivalence nor an effect is not a no-effect or positive-equivalence
     # claim. Request review instead of asserting that the clause is verified.
     for m in _NEITHER_EQUIVALENCE.finditer(original):
@@ -992,6 +1003,22 @@ def _topic(phrase: str) -> List[str]:
 
 # "does not prove", "cannot imply", "whether ... causal": a caution, not a claim. ("Did not show
 # a difference" is an evidence statement, judged elsewhere, so show/establish are not included.)
+# "compatible with no effect and with an effect larger than 3 points": an interval statement,
+# not a claim of no effect (judged as one "compatible" hit).
+_COMPATIBLE_BOTH = re.compile(
+    r"\b(?:compatible|consistent)\s+with\s+(?:both\s+)?(?:no|zero|a\s+null|the\s+null)\s+"
+    r"(?:effect|difference|association)\b"
+    r"(?:\s*,?\s+(?:and|or)\s+(?:with\s+)?(?:an?\s+)?(?:effects?|differences?|benefits?|gains?)\s+"
+    r"(?:larger|greater|bigger|exceeding|beyond|above|more|as\s+large\s+as|of\s+up\s+to|up\s+to)\b"
+    r"(?:\s+(?!(?:and|but|so|which|that|while|whereas|although|because)\b)(?:[^\s.;,:()]|\.(?=\d))+){0,6})?")
+# "the data neither show an effect nor rule out a meaningful one": a statement that the
+# result is inconclusive, not a claim of no effect.
+_NEITHER_SHOW_NOR_RULE_OUT = re.compile(
+    r"\bneither\s+(?:show|shows|showed|shown|demonstrate[sd]?|establish(?:es|ed)?|detect(?:s|ed)?|find|finds|found|"
+    r"confirm(?:s|ed)?)\s+(?:an?\s+|any\s+)?(?:clear\s+|significant\s+|real\s+)?"
+    r"(?:effect|difference|benefit|association)\b(?:\s+(?!nor\b)[^\s.;]+){0,8}?\s*,?\s+nor\s+(?:rule|rules|ruled)\s+"
+    r"out\s+(?:an?\s+|any\s+)?(?:(?:meaningful|important|large|relevant|clinically\s+\w+|practically\s+\w+)\s+)?"
+    r"(?:one|effects?|differences?|benefits?)\b")
 _CAUTION_SPAN = re.compile(r"\b(?:not|cannot|never)\s+(?:\w+\s+){0,2}?(?:prove[sdn]?|proof|imply|implies)\b|"
                            r"n't\s+(?:\w+\s+){0,2}?(?:prove|imply)\b")
 _CAUTION = re.compile(_CAUTION_SPAN.pattern + r"|\bwhether\b[^.;]*\bcaus|\bcaus\w*[^.;]*\bcannot be (?:determined|established)")

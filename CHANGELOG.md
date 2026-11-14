@@ -14,6 +14,13 @@
 * Significance wording after a negation or hedge in its clause ("failed to significantly
   improve", "whether ... significantly improved ...") is "to verify" instead of a false
   conflict.
+* Wording that statwarrant recommends is no longer a conflict: "too small to matter" is read
+  as a claim of a negligible effect, "compatible with no effect and with an effect larger
+  than ..." as an interval statement, and "the data neither show an effect nor rule out a
+  meaningful one" as a statement that the result is inconclusive. In a blind reader
+  experiment on 405 sentences these gave 15 false conflicts on 190 correct sentences (8%);
+  after the change, 2 (1%). Each wording still conflicts with a result it does not describe.
+  Regression tests: `tests/test_recommended_wording_051.py`.
 * The README install line is `pip install statwarrant` (the package is on PyPI).
 * Regression tests: `tests/test_significance_both_orders_051.py`.
 
