@@ -65,6 +65,22 @@ def fmt_p(x: float, precision: int = 3) -> str:
     return "underflow or unavailable (not exact zero)" if x == 0 else format(x, f".{precision}g")
 
 
+def _fmt_p_for_alpha(p: float, alpha: float) -> str:
+    """Add digits when rounding would put p on the wrong side of alpha.
+
+    The numerical test decision is still based on the test statistic, not the
+    displayed p-value, whose binary64 computation may itself be rounded.
+    """
+    if p == 0:
+        return fmt_p(p)
+    for precision in range(3, 18):
+        text = fmt_p(p, precision)
+        displayed = float(text)
+        if (p < alpha and displayed < alpha) or (p > alpha and displayed > alpha) or (p == alpha and displayed == alpha):
+            return text
+    return fmt_p(p, 17)
+
+
 def fmt_interval(lo: float, hi: float) -> str:
     """Format distinct finite endpoints without rounding both to one number.
 
@@ -2043,6 +2059,25 @@ def check_sentence(sentence: str, ctx: Context) -> CheckResult:
     def unbound_reason(h: _Hit) -> str:
         # A number or size claim inside an unbound comparison: say what was not checked and
         # why, instead of repeating the direction message.
+        if h.category == "significance":
+            ev = ctx.evidence
+            finding = ("is significant" if ev.differs_from_zero else "is not significant")
+            conditional = ("compare the full wording with that decision" if ev.differs_from_zero else
+                           "that assertion would conflict with this result")
+            numerical_boundary = bool(ev.p_zero and ((ev.p_zero < ev.alpha) != ev.differs_from_zero))
+            displayed_p = (fmt_p(ev.p_zero, 17) if numerical_boundary else
+                           _fmt_p_for_alpha(ev.p_zero, ev.alpha))
+            boundary_note = (" At numerical precision, the calculated p-value can compare differently with "
+                             "alpha than the test-statistic decision; review this boundary case carefully."
+                             if numerical_boundary else "")
+            return (f"{_UNBOUND_PREFIX} the significance wording could not be tied to this result. "
+                    f"This result's two-sided test relative to its reference null {finding} at alpha = {ev.alpha} "
+                    f"(p = {displayed_p}, rounded; decision based on the test statistic).{boundary_note} "
+                    f"The reference null on the original scale may be nonzero, reconstructed or unknown; "
+                    f"verify it against the source analysis. "
+                    f"If the sentence asserts significance for this same test "
+                    f"and result at the declared alpha, {conditional}. Check the test, reference null, threshold, "
+                    f"outcome, groups, contrast and whether the wording is asserted, hypothetical or negated by hand.")
         what = _UNBOUND_WHAT.get(h.category, "this part")
         if h.category == "number" and h not in embedded:
             what = "this number"
@@ -2127,6 +2162,8 @@ def check_sentence(sentence: str, ctx: Context) -> CheckResult:
         action = _ACTION.get(cat, "Check this statement against the result.") if status != CONSISTENT else ""
         if status == CHECK and (reason == review_reason or reason.startswith(_UNBOUND_PREFIX)):
             action = "Verify the compared groups or time points, their order and the declared contrast by hand."
+        if status == CHECK and cat == "significance" and reason.startswith(_UNBOUND_PREFIX):
+            action = "Verify the test, reference null, threshold, outcome, groups, contrast and whether the claim is asserted."
         if status == CHECK and any("unit_span" in h.data for h in hs):
             action = "Check the intended quantity, unit and any conversion by hand."
         rule = "direction" if cat == "comparison_unbound" else cat.replace("_", "-")
