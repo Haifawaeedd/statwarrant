@@ -15,7 +15,7 @@ importance, and it can flag common misreadings in a sentence you are about to wr
 > and the sentence linter's accuracy has not been measured. Use it as an aid to careful
 > reporting, not as a validator, and check its output. Reports of wrong results are very welcome.
 
-> **0.5.0 — public trial.** Please try it on your own results and tell us where it is
+> **0.5.1 — public trial.** Please try it on your own results and tell us where it is
 > wrong. The sentence checker is pattern-based and partial: a **conflict** is an apparent
 > contradiction that can itself be mistaken; **not verified** lists some parts it could
 > not check. No warning is never an approval. Always check group order, outcome, contrast and the complete
@@ -115,13 +115,14 @@ result. **Not verified** lists parts it recognised but could not check, for you 
 ## Install
 
 ```bash
-pip install "git+https://github.com/Haifawaeedd/statwarrant@v0.5.0"
+pip install statwarrant
 ```
 
-Pin the version you used (the `v0.5.0` tag), so your analysis can be reproduced.
-Requires Python 3.9+, NumPy 1.22+ and SciPy 1.11+. If an earlier development snapshot is
-installed, add `--force-reinstall` so it is not reused silently. statwarrant is not yet on
-PyPI.
+Pin the version you used (for example `pip install statwarrant==0.5.1`), so your analysis
+can be reproduced. Requires Python 3.9+, NumPy 1.22+ and SciPy 1.11+. To install a tagged
+commit from GitHub instead: `pip install "git+https://github.com/Haifawaeedd/statwarrant@v0.5.1"`.
+If an earlier development snapshot is installed, add `--force-reinstall` so it is not
+reused silently.
 
 ## Real-data regression example
 
@@ -223,10 +224,13 @@ sw.declare(..., design="randomised")      # or "observational"; used to judge ca
 sw.declare(..., subgroup="patients on mechanical ventilation")   # the result is a subgroup result
 ```
 
-Both are your own description, reported and never verified. With `design="randomised"`,
-causal wording about an established average effect is not flagged; with
-`"observational"` it is a conflict. With `subgroup`, a sentence naming that subgroup is
-not flagged as a subgroup claim.
+Both are your own description, reported and never verified. With `"observational"`,
+causal wording is a conflict. Otherwise causal wording is always "to verify": the design
+helps, but statwarrant cannot check that the intervention, outcome and scope in the
+sentence match the result ("the treatment caused cancer" for an exam-score result). With
+`subgroup`, a subgroup claim is also "to verify", with the declared subgroup named, because
+a word overlap cannot show which group is meant ("women with diabetes" against "men with
+diabetes").
 
 ### Comparing two models on the same test items
 

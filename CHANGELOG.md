@@ -1,6 +1,48 @@
 # Changelog
 
-## 0.5.0
+## 0.5.1
+
+* A claim of significance ("significantly improved", "significantly different between the
+  groups", "scored significantly higher than ...") is a **conflict** when the test of
+  difference from zero is not significant, whichever way the comparison runs. In 0.5.0 it
+  got only "to verify" whenever the comparison could not be tied to the declared contrast:
+  the quick start's own sentence, "The new method significantly improved scores.", was not
+  flagged for a non-significant result (p = 0.258), and declaring the contrast or passing a
+  SciPy result weakened the warning that estimate + SE without a contrast gave. This is the
+  rule already used for ratios: a conflict when ruled out in both orders. With a
+  significant result the order still decides, so those claims stay "to verify".
+* Significance wording after a negation or hedge in its clause ("failed to significantly
+  improve", "whether ... significantly improved ...") is "to verify" instead of a false
+  conflict.
+* Wording that statwarrant recommends is no longer a conflict: "too small to matter" is read
+  as a claim of a negligible effect, "compatible with no effect and with an effect larger
+  than ..." as an interval statement, and "the data neither show an effect nor rule out a
+  meaningful one" as a statement that the result is inconclusive. In a blind reader
+  experiment on 405 sentences these gave 15 false conflicts on 190 correct sentences (8%);
+  after the change, 2 (1%). Each wording still conflicts with a result it does not describe.
+  Regression tests: `tests/test_recommended_wording_051.py`.
+* A p-value or "significant" is tied to the test named nearest before it in its part of the
+  sentence. "The one-sided test was significant despite the equivalence test giving
+  p = 0.000063" keeps the conflict on the equivalence test's p-value and leaves "significant"
+  to verify, instead of judging both against the equivalence test. Tests statwarrant does
+  not run (permutation, bootstrap, chi-square, Fisher's exact, interaction, sensitivity,
+  a one-sided test and others) are recognised: a p-value or significance claim tied to one
+  of them is "to verify", never consistent ("the permutation test, whose p-value was
+  0.000063" was called consistent with the zero test). Naming "the zero test" ties a
+  p-value to it. Found in the claim-binding review (draft pull request #2); regression
+  tests: `tests/test_test_binding_051.py`.
+* After the review of the 0.5.1 candidate (draft pull request #3): a p-value or
+  "significant" binds to a test named after it with a preposition ("significant in the
+  equivalence test") and through an opening phrase ("For the zero test, p = ...": a
+  mismatch is a conflict, a match is "to verify"); parts of a sentence end at words such as
+  "whereas", "despite" and "whose"; of overlapping test names the first wins ("the
+  permutation test of zero" is a permutation test). Causal wording is never "consistent"
+  (still a conflict with `design="observational"`), and a subgroup claim is always "to
+  verify", as in draft pull request #2: statwarrant cannot check the outcome or group the
+  wording names. A claim inside a parenthetical aside, or after "yet", within an interval
+  statement is checked on its own. Regression tests: `tests/test_review_v2_051.py`.
+* The README install line is `pip install statwarrant` (the package is on PyPI).
+* Regression tests: `tests/test_significance_both_orders_051.py`.
 
 First public trial release. Built on the comparison-safety branch (commit 8ad4164)
 after the third user trial, two external reviews and a check on sentences from six

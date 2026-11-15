@@ -17,8 +17,11 @@ def _parts(res, sentence):
 # ---- design --------------------------------------------------------------------------------
 
 def test_causal_wording_with_a_randomised_design_and_an_established_effect():
+    # 0.5.1: never "consistent": statwarrant cannot verify the intervention, outcome and scope
+    # the causal wording names ("The treatment caused cancer" for an exam-score result).
     res = sw.declare(design="randomised", units="points").analyze(estimate=4.0, se=1.0)
-    assert _parts(res, "The program led to higher scores.")["causal"].status == "consistent"
+    p = _parts(res, "The program led to higher scores.")["causal"]
+    assert p.status == "check" and "randomised" in p.reason and "established" in p.reason
 
 
 def test_causal_wording_with_a_randomised_design_but_no_established_effect():
@@ -68,10 +71,12 @@ def test_affirmed_proof_is_still_a_conflict():
 # ---- subgroup results ------------------------------------------------------------------------
 
 def test_sentence_naming_the_declared_subgroup():
+    # 0.5.1: a word overlap cannot show which group is meant ("women with diabetes" for a
+    # result declared in "men with diabetes"), so a subgroup is always left to verify.
     res = sw.declare(subgroup="patients receiving no respiratory support", units="log rate ratio").analyze(
         ci=(-0.09, 0.44))
     s = "Among patients who were not receiving respiratory support, no benefit was evident."
-    assert _parts(res, s)["subgroup"].status == "consistent"
+    assert _parts(res, s)["subgroup"].status == "check"
 
 
 @pytest.mark.parametrize("sentence", [

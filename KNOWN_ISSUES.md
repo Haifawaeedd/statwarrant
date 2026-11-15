@@ -1,8 +1,39 @@
-# Known issues in statwarrant 0.5.0 (experimental alpha)
+# Known issues in statwarrant 0.5.1 (experimental alpha)
 
 These are known, unresolved issues. The examples are targeted checks, not estimates
 of how often errors occur. Use statwarrant as an aid, not an automated validator;
 independently check calculations and the full text of research claims.
+
+## Changed in 0.5.1, with limitations
+
+A claim of significance is now a `conflict` when the zero test is not significant, even
+inside a comparison that cannot be tied to the declared contrast (see `CHANGELOG.md`).
+Regression tests are in `tests/test_significance_both_orders_051.py`. Limitations:
+
+* statwarrant still cannot tell which comparison a sentence is about. "Group C scored
+  significantly higher than group D", about groups outside the declared contrast, now
+  gets a `conflict` for a non-significant result, as any significance wording already did
+  when no comparison word was present. A conflict can itself be mistaken; check it.
+* The negation and hedge guard is a short word list read back to the previous clause
+  boundary ("not", "no", "failed to", "whether", "unclear", "cannot", ...). Other
+  phrasings that deny or question significance can still give a false `conflict`, and a
+  listed word that does not negate the significance claim ("Not only did ...") turns it
+  into "to verify".
+* Sentences checked in earlier trials were not re-run on this version; the counts below
+  describe the versions named there.
+* Test binding uses the nearest test named before a p-value in the same part of the
+  sentence, and a fixed list of test names. A test outside that list, or a p-value whose
+  test is named only in another sentence, is still treated as the zero test; check such
+  p-values by hand.
+* A benefit reported as a positive number for a lower-is-better outcome ("1.9 mmHg in
+  favour of the drug", when the estimate is -1.9) is compared as a signed value and gives a
+  conflict. Report the signed difference, or check such numbers by hand.
+* In the reader experiment the rule checker caught 46% of misleading constructed sentences
+  as conflicts. It gave no conflict for reversed direction ("the drug raised blood
+  pressure" when it lowered it), harm described as benefit, "a trend toward" wording, or
+  "large and practically important" without a declared threshold being exceeded; those are
+  left as "to verify". The experiment materials will be published after the human reader
+  study that uses some of the same sentences.
 
 ## Review of the 0.5.0 release candidate
 
@@ -161,7 +192,8 @@ remaining cases below. This is not independent human validation.
 * **Named tests across a comma.** `"For the equivalence test, p = 0.011."` (zero-test
   p = 0.0111, equivalence-test p = 0.7719) now gives `check`: when the clause names
   another test, a p-value or significance word is never marked consistent with the zero
-  test.
+  test. (Changed in 0.5.1: an opening "For the ... test," now binds to that test, so this
+  sentence is a `conflict`; a matching p-value there is still only `check`.)
 * **Percentage points.** Conversion happens only when the declared units are a
   proportion (`accuracy`, `proportion`, `rate`, `probability`, `recall`, `AUC` and
   similar) and only for numbers attached to "percentage points" (or an interval in the
