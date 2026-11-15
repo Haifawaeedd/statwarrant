@@ -422,12 +422,17 @@ _WORD_PATTERNS = [
                   r"\b(?:was|were|is|are|been|be)\s*(?:not|n't)\s+(?:associated|related|linked|correlated)\s+"
                   r"(?:with|to)\b|"
                   r"\bneither\b[^.;]*?\bnor\b(?:\s+\w+)?"),
-    ("certainty", r"\b(?:prove[sdn]?|proof|conclusively|definitely|certainly|undeniabl[ey]|exactly|precisely)\b"),
+    ("certainty", r"\b(?:prove[sdn]?|proof|conclusively|definitely|certainly|undeniabl[ey]|exactly|precisely|"
+                  r"guarantee[sd]?|guaranteeing)\b"),
     ("generalization", r"\b(?:in general|generally|always|universally|for everyone|for everybody|everyone|everybody|"
                        r"nobody|no one|none of the \w+|"
-                       r"for all\b|all (?:of )?(?:the )?(?:students|users|patients|people|participants|learners|"
+                       r"for all\b|all (?:of )?(?:the )?"
+                       # one describing word is allowed ("all medical questions"), but not a count ("all three groups")
+                       r"(?:(?!(?:\d+|two|three|four|five|six|seven|eight|nine|ten|other|these|those|our|their|both)\b)"
+                       r"[a-z][a-z-]*\s+)?(?:students|users|patients|people|participants|learners|"
                        r"children|adults|models|tasks|datasets|settings|schools|classes|groups|populations|contexts|"
-                       r"languages|domains|cases|individuals|subjects|respondents|conditions)|every\s+\w+|"
+                       r"languages|domains|cases|individuals|subjects|respondents|conditions|questions|items|problems|"
+                       r"instances|examples|inputs|prompts|queries|situations)|every\s+\w+|"
                        r"each\s+(?:student|user|patient|person|participant|learner|child|individual|subject|"
                        r"respondent|case|school|class|model|task|dataset|setting)|"
                        r"generali[sz](?:e|es|ed|able|ation)|in every|across (?:all|the board)|regardless of|"
@@ -1081,8 +1086,8 @@ _NEITHER_SHOW_NOR_RULE_OUT = re.compile(
     r"(?:effect|difference|benefit|association)\b(?:\s+(?!nor\b)[^\s.;,:\[\]]+){0,8}?\s*,?\s+nor\s+(?:rule|rules|ruled)\s+"
     r"out\s+(?:an?\s+|any\s+)?(?:(?:meaningful|important|large|relevant|clinically\s+\w+|practically\s+\w+)\s+)?"
     r"(?:one|effects?|differences?|benefits?)\b")
-_CAUTION_SPAN = re.compile(r"\b(?:not|cannot|never)\s+(?:\w+\s+){0,2}?(?:prove[sdn]?|proof|imply|implies)\b|"
-                           r"n't\s+(?:\w+\s+){0,2}?(?:prove|imply)\b")
+_CAUTION_SPAN = re.compile(r"\b(?:not|cannot|never)\s+(?:\w+\s+){0,2}?(?:prove[sdn]?|proof|imply|implies|guarantee[sd]?)\b|"
+                           r"n't\s+(?:\w+\s+){0,2}?(?:prove|imply|guarantee)\b")
 _CAUTION = re.compile(_CAUTION_SPAN.pattern + r"|\bwhether\b[^.;]*\bcaus|\bcaus\w*[^.;]*\bcannot be (?:determined|established)")
 
 _COUNT_NOUNS = (r"(?:patients?|participants?|subjects?|people|persons?|individuals?|women|men|children|adults|"
@@ -1995,6 +2000,10 @@ _COMPARISON = re.compile(r"(?<!more )(?<!less )\bthan\b(?!\s+" + _THRESHOLD_NAME
                          r"\bduring\s+(?:follow[- ]?up|treatment|intervention)\b|"
                          r"\bwith\s+(?:the\s+)?(?:treatment|intervention|control)\b|"
                          r"\b(?:after|before|following)\b|\bfor\s+(?!display\b)(?:the\s+)?[a-z]")
+# "could not determine whether it raised scores": the change is asked about, not asserted.
+_OPEN_QUESTION = re.compile(r"\b(?:whether|if)\b")
+_ORDERING_CUE = re.compile(r"\bthan\b|\b(?:inverse(?:ly)?|positive(?:ly)?|negative(?:ly)?)\b|\b(?:outperform|underperform|outscore|beat|exceed|surpass|trail)\w*|"
+                          r"\b\w+er\s+(?:for|in|with|among|under|on)\b")
 _IMPLICIT_COMPARATIVE = re.compile(r"\b(?:higher|lower|greater|fewer|better|worse|superior|inferior)\b")
 _DIRECT_SIGN = re.compile(r"\s*(?:the\s+)?(?:estimated\s+)?(?:effect(?:\s+estimate)?|difference|estimate|contrast|coefficient)\s+"
                           r"(?:is|was)\s+(?:positive|negative)\s*[.!?]?\s*")
@@ -2054,6 +2063,53 @@ def _exact_comparison(text: str, ctx: Context):
                 sign = token_sign if oriented_index == 0 else -token_sign
                 return sign, match.span("word"), (match.span("first"), match.span("second"))
     return None
+
+
+# Words that reverse or cancel a group label: "without evidence", "removing evidence".
+_LABEL_NEGATOR = re.compile(r"\b(?:without|removing|removed|remove|removes|dropping|dropped|drop|omitting|omitted|"
+                            r"omit|excluding|excluded|exclude|absence of|lack of|no|not|minus|instead of|rather than|"
+                            r"before)\s+(?:\w+\s+){0,2}$|"
+                            # an amount word right before the label: "less evidence", "reduced evidence"
+                            r"\b(?:less|fewer|reduced|reducing|lower|smaller|shorter)\s+$")
+
+
+def _label_binding(text: str, ctx: Context, carriers, sign):
+    """Tie one direction word to the declared contrast 'A minus B' when only A is named.
+
+    A deliberately narrow rule: the declared outcome must appear, only the first label
+    may appear (as a whole word, not negated or removed), there must be one direction
+    word and no other comparison cue. Returns (label, contrast) or None.
+    """
+    if sign not in (1, -1) or len(carriers) != 1 or not ctx.contrast or not ctx.outcome:
+        return None
+    if not ctx.comparison_origin_is_zero or _COMPARISON.search(text):
+        return None
+    pair = re.fullmatch(r"(.+?)\s+minus\s+(.+)", _normalize(ctx.contrast)[0].strip())
+    if pair is None:
+        return None
+    labels = [re.sub(r"\s+", " ", g.strip()) for g in pair.groups()]
+    if labels[0] == labels[1] or any(not _LABEL.fullmatch(x) or _LABEL_STOP.search(x) or
+                                     _sign_of(x, ctx.better) is not None for x in labels):
+        return None
+    outcome = _normalize(ctx.outcome)[0].strip()
+    if not _LABEL.fullmatch(outcome) or _sign_of(outcome, ctx.better) is not None:
+        return None
+
+    def find(word):
+        return list(re.finditer(r"(?<![\w-])" + r"\s+".join(re.escape(w) for w in word.split()) + r"(?![\w-])", text))
+
+    first, second, out = find(labels[0]), find(labels[1]), find(outcome)
+    if len(first) != 1 or second or not out:
+        return None
+    a, b = first[0].span()
+    if any(a < o.end() and o.start() < b for o in out):  # the label is part of the outcome's name
+        return None
+    if _LABEL_NEGATOR.search(text[:a]) or _OPEN_QUESTION.search(text[:carriers[0].start]):
+        return None
+    c = carriers[0]
+    if a < c.end and c.start < b:
+        return None
+    return labels[0], f"{labels[0]} minus {labels[1]}"
 
 
 _NUMBER_CATS = {"interval_level", "alpha_level", "p_value", "percentage", "magnitude", "range", "plausible_value",
@@ -2190,10 +2246,21 @@ def check_sentence(sentence: str, ctx: Context) -> CheckResult:
             # A claim of significance cannot be true in either order when the zero test is
             # not significant at all, so it does not depend on binding the comparison (the
             # same rule as for ratios: a conflict when ruled out in both orders).
-            if (h.category == "significance" and not ctx.evidence.differs_from_zero and
+            # A significance claim with no direction word ("differed significantly between the
+            # groups") is the two-sided test itself, so it holds or fails whichever way the
+            # comparison runs as well.
+            # Unrecognised comparatives ("longer ... than") carry a direction the scanner
+            # cannot see, so any ordering word keeps the claim with the reviewer.
+            nondirectional = (not direction_hits and not embedded and
+                              not any(x.category == "comparison_unbound" for x in hits) and
+                              not _ORDERING_CUE.search(original) and not _IMPLICIT_COMPARATIVE.search(original))
+            if (h.category == "significance" and (not ctx.evidence.differs_from_zero or nondirectional) and
                     h.data.get("named") is None and not h.data.get("named_elsewhere") and
                     not h.data.get("in_outcome") and not h.data.get("multiple_models")):
                 status, reason = judge(h)
+                if status == CONSISTENT:
+                    return CONSISTENT, (f"{reason} The sentence names no direction, and a two-sided test does "
+                                        f"not depend on which way the comparison runs.")
                 if status == CONFLICT:
                     return CONFLICT, (f"{reason} This holds whichever way the comparison runs, so it does not "
                                       f"depend on the declared contrast.")
@@ -2322,7 +2389,24 @@ def check_sentence(sentence: str, ctx: Context) -> CheckResult:
     if carriers and (unbound or not folded or sign == 0):
         ev = ctx.evidence
         z = ctx.ci_text()
-        if unbound:
+        bound = _label_binding(original, ctx, carriers, sign) if unbound else None
+        if (unbound and sign in (1, -1) and ev.direction == 0 and ctx.comparison_origin_is_zero and
+                not any(_IMPLICIT_COMPARATIVE.search(h.phrase) for h in carriers) and
+                not any(_OPEN_QUESTION.search(original[:h.start]) for h in carriers)):
+            # Whichever way the comparison runs, a stated change ("improved", "reduced") is not
+            # supported when the interval includes zero. Comparatives such as "higher" may
+            # compare something else, so they stay with the reviewer.
+            status, reason = CONFLICT, (f"The direction of the effect is not established: {z} includes zero. "
+                                        f"This holds whichever way the comparison runs.")
+        elif bound is not None:
+            label, contrast = bound
+            if sign != ev.direction:
+                status, reason = CONFLICT, (f"Reading '{label}' as the first group of the declared contrast "
+                                            f"({contrast}), the data point the other way ({z}).")
+            else:
+                status, reason = CHECK, (f"The direction agrees with the result if '{label}' is the first group of "
+                                         f"the declared contrast ({contrast}); verify the wording by hand.")
+        elif unbound:
             status, reason = CHECK, review_reason
         elif sign == 0:
             status, reason = CONFLICT, "The sentence states both directions at once."

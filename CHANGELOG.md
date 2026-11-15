@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.5.2
+
+Fixes from the first real-data trial (11 paired comparisons from an LLM evaluation project,
+run by the author on 1,000 PubMedQA cases).
+
+* **Direction.** A stated change ("improved", "reduced", "lowered") is a **conflict** when
+  the interval includes zero, whichever way the comparison runs. In 0.5.1 a declared
+  contrast sent every such sentence to "to verify": "Adding justification significantly
+  improved accuracy" for an estimate of -1.6 points (95% CI -3.7 to 0.5) got a conflict on
+  "significantly" but nothing on "improved". Comparatives ("higher", "lower") and changes
+  asked about ("could not determine whether it raised ...") stay "to verify".
+* **Reversed direction.** When the contrast is declared as "A minus B" and the sentence names
+  the outcome and only A ("Adding evidence reduced accuracy", "Accuracy was lower with
+  evidence"), a direction opposite to the established one is a **conflict**. A matching
+  direction is only "to verify", never consistent. The rule does not apply when B, a
+  comparison cue (than, versus, compared with ...), or a removal of A ("without evidence",
+  "removing evidence", "less evidence") appears, or when the outcome is not named. In 0.5.1
+  reversed direction was never detected.
+* **Guarantees.** "guaranteed" is certainty wording (a conflict); "not guaranteed" and "does
+  not guarantee" are cautions. "all" followed by one describing word and a noun such as
+  questions, items, cases or patients ("all medical questions") is a generalisation; counts
+  ("all three groups") are not.
+* **Two-sided significance.** A significance claim that names no direction ("differed
+  significantly between the groups", "a significant difference between the conditions") is
+  consistent with a significant result and a conflict with a non-significant one. Sentences
+  with any ordering word (than, outperformed, inverse, positive, "-er for ...") stay "to
+  verify".
+* On the 405 sentences of the reader experiment, conflicts on misleading synthetic sentences
+  rose from 65 to 86 of 140 (46% to 61%), with no new conflicts on correct sentences (2 of
+  190) and none on the 43 correct published sentences. These sentences were used during
+  development, so this is not an unbiased accuracy estimate.
+* Regression tests: `tests/test_real_data_trial_052.py`.
+
 ## 0.5.1
 
 * A claim of significance ("significantly improved", "significantly different between the
