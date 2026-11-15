@@ -29,11 +29,11 @@ Regression tests are in `tests/test_significance_both_orders_051.py`. Limitation
   favour of the drug", when the estimate is -1.9) is compared as a signed value and gives a
   conflict. Report the signed difference, or check such numbers by hand.
 * In the reader experiment the rule checker caught 46% of misleading constructed sentences
-  as conflicts in 0.5.1 and 61% in 0.5.2 (measured on the same sentences used during
-  development, so optimistic). Reversed direction is caught only when the contrast is
-  declared as "A minus B" and the sentence names the outcome and only A; otherwise it, harm
-  described as benefit, and "large and practically important" without a declared threshold
-  being exceeded are left as "to verify".
+  as conflicts in 0.5.1 and 92% in 0.5.2 (measured on the same templated sentences used
+  while writing the rules, so very optimistic). Reversed direction is caught only when the
+  contrast is declared as "A minus B" and the sentence names the outcome with A alone, or
+  in the order "A ... compared with / than B"; other orders and wordings are left as "to
+  verify".
 * The checker does not judge what a measure means. "Increasing tokens made the model 51
   points better at medical reasoning" is not flagged when the measured outcome was strict
   answer correctness: the construct claim must be checked by hand. Declare `units` on the

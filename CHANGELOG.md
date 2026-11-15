@@ -27,10 +27,26 @@ run by the author on 1,000 PubMedQA cases).
   consistent with a significant result and a conflict with a non-significant one. Sentences
   with any ordering word (than, outperformed, inverse, positive, "-er for ...") stay "to
   verify".
-* On the 405 sentences of the reader experiment, conflicts on misleading synthetic sentences
-  rose from 65 to 86 of 140 (46% to 61%), with no new conflicts on correct sentences (2 of
-  190) and none on the 43 correct published sentences. These sentences were used during
-  development, so this is not an unbiased accuracy estimate.
+* **Reversed direction in a comparison.** "A lowered the outcome compared with B" and "A led
+  to lower ... than B" are conflicts when the result points the other way. Only the order
+  A, change, outcome, cue, B is read; "B ... than A" stays "to verify".
+* **Practical importance.** "A large and practically important improvement" is a conflict
+  when the interval is not wholly beyond the smallest effect size of interest, whichever
+  way the comparison runs. Hedged or negated wording ("not clear whether the benefit is
+  large enough to matter", "no meaningful difference", "negligible") is not judged by this
+  rule.
+* **Trends.** "A trend toward higher scores" is judged like a stated change: a conflict when
+  the interval includes zero.
+* **Unattached negations.** A claim that follows a negation the checker cannot attach, in the
+  same clause, is "to verify" instead of judged: "The diet did not produce a clinically
+  meaningful weight loss" was a false conflict in 0.5.1.
+* On the 405 sentences of the reader experiment, conflicts on misleading constructed
+  sentences rose from 65 to 129 of 140 (46% to 92%), with no new conflicts on correct
+  sentences (2 of 190; 0 of 43 published). These sentences were read while writing the
+  rules and follow fixed templates, so this is far from an unbiased accuracy estimate. See
+  VALIDATION.md.
+* New: ROADMAP.md (the optional reader layer planned for 0.6.0) and VALIDATION.md sections
+  on the reader experiment, the real-data trial and held-out reported sentences.
 * Regression tests: `tests/test_real_data_trial_052.py`.
 
 ## 0.5.1
