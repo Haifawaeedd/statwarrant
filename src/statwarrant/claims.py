@@ -25,6 +25,7 @@ proof that the sentence is false.
 from __future__ import annotations
 
 import math
+import dataclasses
 import re
 import sys
 import unicodedata
@@ -2002,6 +2003,8 @@ _COMPARISON = re.compile(r"(?<!more )(?<!less )\bthan\b(?!\s+" + _THRESHOLD_NAME
                          r"\b(?:after|before|following)\b|\bfor\s+(?!display\b)(?:the\s+)?[a-z]")
 # "could not determine whether it raised scores": the change is asked about, not asserted.
 _OPEN_QUESTION = re.compile(r"\b(?:whether|if)\b")
+# "a trend toward higher scores": the comparative describes the effect itself.
+_TREND_BEFORE = re.compile(r"\btrend(?:s|ed|ing)?\s+(?:toward|towards|to|for)\s+(?:a\s+|an\s+)?$")
 _ORDERING_CUE = re.compile(r"\bthan\b|\b(?:inverse(?:ly)?|positive(?:ly)?|negative(?:ly)?)\b|\b(?:outperform|underperform|outscore|beat|exceed|surpass|trail)\w*|"
                           r"\b\w+er\s+(?:for|in|with|among|under|on)\b")
 _IMPLICIT_COMPARATIVE = re.compile(r"\b(?:higher|lower|greater|fewer|better|worse|superior|inferior)\b")
@@ -2065,6 +2068,26 @@ def _exact_comparison(text: str, ctx: Context):
     return None
 
 
+_HEDGE = re.compile(r"\b(?:no|not|n't|never|neither|nor|whether|if|unclear|uncertain|without|too|negligible|"
+                    r"nothing|cannot|could not|unable)\b|n't\b")
+_NOT_AFFIRMATIVE = {"no_effect", "small", "not_established", "not_ruled_out", "compatible", "cannot_judge",
+                    "nonsignificance", "evidence_absent", "marginal", "caution", "equivalence", "inconclusive"}
+
+
+def _affirmed(text: str, h, hits) -> bool:
+    """True when a claim is asserted plainly: no negation or hedge in its clause and no
+    hedged or negative claim elsewhere in the sentence."""
+    if any(x.category in _NOT_AFFIRMATIVE for x in hits):
+        return False
+    starts = [m.end() for m in _SEGMENT.finditer(text, 0, h.start)]
+    start = starts[-1] if starts else 0
+    nxt = _SEGMENT.search(text, h.end)
+    end = nxt.start() if nxt else len(text)
+    return not _HEDGE.search(text[start:h.start]) and not _HEDGE.search(text[h.end:end])
+
+
+_CUE_BEFORE_B = re.compile(r"\b(?:compared (?:with|to)|than|relative to|versus|vs\.?)\s+"
+                           r"(?:(?:that|those) (?:of|in|with|for|under)\s+|(?:in|with|for|under)\s+)?$")
 # Words that reverse or cancel a group label: "without evidence", "removing evidence".
 _LABEL_NEGATOR = re.compile(r"\b(?:without|removing|removed|remove|removes|dropping|dropped|drop|omitting|omitted|"
                             r"omit|excluding|excluded|exclude|absence of|lack of|no|not|minus|instead of|rather than|"
@@ -2082,7 +2105,7 @@ def _label_binding(text: str, ctx: Context, carriers, sign):
     """
     if sign not in (1, -1) or len(carriers) != 1 or not ctx.contrast or not ctx.outcome:
         return None
-    if not ctx.comparison_origin_is_zero or _COMPARISON.search(text):
+    if not ctx.comparison_origin_is_zero:
         return None
     pair = re.fullmatch(r"(.+?)\s+minus\s+(.+)", _normalize(ctx.contrast)[0].strip())
     if pair is None:
@@ -2099,14 +2122,26 @@ def _label_binding(text: str, ctx: Context, carriers, sign):
         return list(re.finditer(r"(?<![\w-])" + r"\s+".join(re.escape(w) for w in word.split()) + r"(?![\w-])", text))
 
     first, second, out = find(labels[0]), find(labels[1]), find(outcome)
-    if len(first) != 1 or second or not out:
+    if len(first) != 1 or not out:
         return None
     a, b = first[0].span()
+    c = carriers[0]
+    if second:
+        # Only the order "A <changed> <outcome> compared with / than B" is read.
+        if len(second) != 1:
+            return None
+        sa, sb = second[0].span()
+        if not (b <= c.start and c.end <= sa) or not _CUE_BEFORE_B.search(text[c.end:sa]):
+            return None
+        if _COMPARISON.search(text[:c.end]) or _COMPARISON.search(text[sb:]) or \
+                re.search(r"\b(?:and|but|while|whereas|although)\b", text[c.end:sa]):
+            return None
+    elif _COMPARISON.search(text):
+        return None
     if any(a < o.end() and o.start() < b for o in out):  # the label is part of the outcome's name
         return None
     if _LABEL_NEGATOR.search(text[:a]) or _OPEN_QUESTION.search(text[:carriers[0].start]):
         return None
-    c = carriers[0]
     if a < c.end and c.start < b:
         return None
     return labels[0], f"{labels[0]} minus {labels[1]}"
@@ -2264,6 +2299,15 @@ def check_sentence(sentence: str, ctx: Context) -> CheckResult:
                 if status == CONFLICT:
                     return CONFLICT, (f"{reason} This holds whichever way the comparison runs, so it does not "
                                       f"depend on the declared contrast.")
+            # Practical importance needs the whole interval beyond the smallest effect of
+            # interest on one side; when it is not, no ordering of the groups can rescue it.
+            if (h.category == "importance" and ctx.evidence.sesoi is not None and
+                    not ctx.evidence.exceeds_sesoi and ctx.comparison_origin_is_zero and
+                    _affirmed(original, h, hits)):
+                status, reason = judge(h)
+                if status == CONFLICT:
+                    return CONFLICT, (f"{reason} This holds whichever way the comparison runs, so it does not "
+                                      f"depend on the declared contrast.")
             role = _number_hit_role(h, original, ctx) if h.category == "number" else None
             if (h in embedded or h.category in ("importance", "big", "significance", "nonsignificance", "evidence",
                                                 "evidence_absent", "marginal", "small", "magnitude", "percentage",
@@ -2389,9 +2433,11 @@ def check_sentence(sentence: str, ctx: Context) -> CheckResult:
     if carriers and (unbound or not folded or sign == 0):
         ev = ctx.evidence
         z = ctx.ci_text()
-        bound = _label_binding(original, ctx, carriers, sign) if unbound else None
-        if (unbound and sign in (1, -1) and ev.direction == 0 and ctx.comparison_origin_is_zero and
-                not any(_IMPLICIT_COMPARATIVE.search(h.phrase) for h in carriers) and
+        plain = all(_affirmed(original, x, hits) for x in carriers)
+        bound = _label_binding(original, ctx, carriers, sign) if unbound and plain else None
+        if (unbound and plain and sign in (1, -1) and ev.direction == 0 and ctx.comparison_origin_is_zero and
+                not any(_IMPLICIT_COMPARATIVE.search(h.phrase) and not _TREND_BEFORE.search(original[:h.start])
+                        for h in carriers) and
                 not any(_OPEN_QUESTION.search(original[:h.start]) for h in carriers)):
             # Whichever way the comparison runs, a stated change ("improved", "reduced") is not
             # supported when the interval includes zero. Comparatives such as "higher" may
@@ -2428,6 +2474,15 @@ def check_sentence(sentence: str, ctx: Context) -> CheckResult:
                               "statwarrant could not attach this negation to a claim it checks."))
             for k in range(neg.start(), neg.end()):
                 covered[k] = True
+            # A claim that follows the unattached negation in its clause may be the negated
+            # one ("did not produce a clinically meaningful loss"): do not judge it.
+            for i, (pos, pt) in enumerate(parts):
+                if (pt.rule != "unattached-negation" and pt.status != CHECK and pos > neg.start() and
+                        not _SEGMENT.search(original, neg.end(), pos)):
+                    parts[i] = (pos, dataclasses.replace(
+                        pt, status=CHECK, action="Check the negated part by hand.",
+                        reason=f"A negation ('{neg.group(0).strip()}') comes before this part in its clause and "
+                               f"may apply to it, so it was not judged. Without it: {pt.reason}"))
 
     ordered = tuple(p for _, p in sorted(parts, key=lambda sp: sp[0]))
     # If no pattern is recognized, the entire non-empty sentence is unchecked.

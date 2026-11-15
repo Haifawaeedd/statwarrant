@@ -118,3 +118,57 @@ def test_a_named_direction_keeps_significance_with_the_reviewer():
     res = sw.declare(sesoi=0.01, sesoi_source="illustrative").analyze(estimate=0.13, se=0.013, df=999)
     out = res.check("There was a significant inverse association between coffee and mortality.", record=False)
     assert "consistent" not in parts(out, "significance")
+
+
+# --- reversed direction with a comparison, size, trends, negation ----------------------------
+
+def diet(est):
+    return sw.declare(sesoi=2, sesoi_source="illustrative", units="kg", better="lower", outcome="body weight",
+                      contrast="the diet minus usual care").analyze(estimate=est, se=1.0, df=120)
+
+
+@pytest.mark.parametrize("est, text, conflict", [
+    (-3.5, "The diet increased body weight relative to usual care.", True),
+    (-3.5, "The diet reduced body weight compared to usual care.", False),
+    (-3.5, "Usual care led to higher body weight than the diet.", False),          # B first: not read
+    (-3.5, "The diet did not increase body weight compared with usual care.", False),
+    (-3.5, "Body weight fell more with the diet than with usual care.", False),
+    (-0.5, "The diet lowered body weight.", True),
+    (-0.5, "We found no evidence that the diet lowered body weight.", False),
+    (-0.5, "It remains unclear whether the diet reduced body weight.", False),
+    (-0.5, "The diet produced a clinically meaningful weight loss.", True),
+    (-0.5, "The diet did not produce a clinically meaningful weight loss.", False),
+    (-2.5, "The diet led to a clinically important reduction in body weight.", True),
+    (-5.0, "The diet led to a clinically important reduction in body weight.", False),
+    (-0.5, "There was a tendency toward lower body weight with the diet.", True),
+    (-0.5, "Body weight differed significantly between the diet and usual care.", True),
+    (-3.5, "Body weight differed significantly between the diet and usual care.", False),
+    (-3.5, "The diet is guaranteed to work for everyone.", True),
+])
+def test_wordings_not_used_in_development(est, text, conflict):
+    assert (diet(est).check(text, record=False).level == "conflict") is conflict
+
+
+def test_matching_direction_with_comparison_is_only_sent_to_review():
+    out = diet(-3.5).check("The diet reduced body weight compared to usual care.", record=False)
+    assert parts(out, "direction") == ["check"]
+
+
+@pytest.mark.parametrize("text", ["The new teaching method lowered exam scores compared with the standard method.",
+                                  "The new teaching method led to lower exam scores than the standard method."])
+def test_reversed_direction_in_a_comparison(text):
+    res = sw.declare(sesoi=3, sesoi_source="illustrative", units="points", better="higher", outcome="exam scores",
+                     contrast="the new teaching method minus the standard method").analyze(estimate=3.9, se=1.0,
+                                                                                         df=58)
+    assert parts(res.check(text, record=False), "direction") == ["conflict"]
+
+
+@pytest.mark.parametrize("text", [
+    "The new method made no meaningful difference to scores; any effect is smaller than 3 points.",
+    "The new method raised scores, but it is not clear whether the benefit is large enough to matter.",
+    "The new method raised scores by 1.0 point: a statistically significant but negligible gain.",
+])
+def test_hedged_importance_is_not_a_conflict(text):
+    res = sw.declare(sesoi=3, sesoi_source="illustrative", units="points", outcome="scores",
+                     contrast="the new method minus the old method").analyze(estimate=1.0, se=0.35, df=58)
+    assert "conflict" not in parts(res.check(text, record=False), "importance")

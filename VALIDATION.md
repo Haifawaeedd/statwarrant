@@ -43,9 +43,52 @@ Rules were later changed after seeing these sentences, so the numbers are optimi
 `conflict` is rare on correct text. Most correct sentences still have parts listed as
 "not verified", usually direction words that cannot be tied to the declared contrast.
 
+### Reader experiment (development set)
+
+405 sentences about 10 constructed and 9 published results, read blind by two AI reader
+models (the materials will be published after the human reader study). Share of sentences
+given a `conflict`:
+
+| Sentences | 0.5.1 | 0.5.2 |
+| --- | --- | --- |
+| Misleading, constructed | 65 of 140 (46%) | 129 of 140 (92%) |
+| Correct, constructed | 2 of 190 | 2 of 190 |
+| Misleading, from published studies | 7 of 17 | 8 of 17 |
+| Correct, from published studies | 0 of 43 | 0 of 43 |
+
+The 0.5.2 rules were written after reading these sentences, and the constructed sentences
+follow a few fixed templates, so these numbers are far more optimistic than performance on
+new text. On 16 new wordings written for the 0.5.2 tests, 15 were judged as intended before
+the last fix (`tests/test_real_data_trial_052.py`).
+
+### First real-data trial
+
+The maintainer ran statwarrant 0.5.1 on 11 paired comparisons from an LLM evaluation
+project (1,000 PubMedQA cases, two models, several prompt conditions):
+
+* Estimates, standard errors, degrees of freedom, 95% intervals and p-values matched an
+  independent SciPy calculation in 11 of 11 comparisons (largest difference about 3e-17).
+  statwarrant uses SciPy itself, so this is a consistency check, not an independent proof.
+* Of 10 test sentences, the checker gave correct conflicts for "no difference", "every
+  patient", "proves", a false "significantly improved" and "small" (the estimate was beyond
+  the declared threshold). It missed a reversed direction ("improved" for a negative
+  estimate), "guaranteed ... on all medical questions", and a measure read as a broader
+  ability ("better at medical reasoning" for strict answer correctness). 0.5.2 fixes the
+  first two; the third is outside what a rule checker can judge.
+
+### Held-out sentences
+
+Sentences reported through the ["A sentence the linter got wrong"](.github/ISSUE_TEMPLATE/linter.yml)
+issue form from 0.5.2 on are scored with the released version before any rule is changed
+for them, and those scores are reported separately here. They are the first sentences the
+rules were not written for.
+
 ## Not yet checked
 
 * Accuracy of the sentence checker on sentences labelled by independent researchers.
   A [human-review kit](evaluation/human-review/README.md) is ready.
 * Independent human review of the code. All reviews so far were done with AI systems.
 * Use by researchers other than the maintainer. That is what this trial is for.
+* Whether a written claim matches what the measure means (for example "reasoning" for answer
+  correctness). Rules cannot judge this; an optional reader layer is planned for 0.6.0
+  (see [ROADMAP.md](ROADMAP.md)).
