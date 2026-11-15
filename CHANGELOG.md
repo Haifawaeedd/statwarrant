@@ -1,5 +1,54 @@
 # Changelog
 
+## 0.5.2
+
+Fixes from the first real-data trial (11 paired comparisons from an LLM evaluation project,
+run by the author on 1,000 PubMedQA cases).
+
+* **Direction.** A stated change ("improved", "reduced", "lowered") is a **conflict** when
+  the interval includes zero, whichever way the comparison runs. In 0.5.1 a declared
+  contrast sent every such sentence to "to verify": "Adding justification significantly
+  improved accuracy" for an estimate of -1.6 points (95% CI -3.7 to 0.5) got a conflict on
+  "significantly" but nothing on "improved". Comparatives ("higher", "lower") and changes
+  asked about ("could not determine whether it raised ...") stay "to verify".
+* **Reversed direction.** When the contrast is declared as "A minus B" and the sentence names
+  the outcome and only A ("Adding evidence reduced accuracy", "Accuracy was lower with
+  evidence"), a direction opposite to the established one is a **conflict**. A matching
+  direction is only "to verify", never consistent. The rule does not apply when B, a
+  comparison cue (than, versus, compared with ...), or a removal of A ("without evidence",
+  "removing evidence", "less evidence") appears, or when the outcome is not named. In 0.5.1
+  reversed direction was never detected.
+* **Guarantees.** "guaranteed" is certainty wording (a conflict); "not guaranteed" and "does
+  not guarantee" are cautions. "all" followed by one describing word and a noun such as
+  questions, items, cases or patients ("all medical questions") is a generalisation; counts
+  ("all three groups") are not.
+* **Two-sided significance.** A significance claim that names no direction ("differed
+  significantly between the groups", "a significant difference between the conditions") is
+  consistent with a significant result and a conflict with a non-significant one. Sentences
+  with any ordering word (than, outperformed, inverse, positive, "-er for ...") stay "to
+  verify".
+* **Reversed direction in a comparison.** "A lowered the outcome compared with B" and "A led
+  to lower ... than B" are conflicts when the result points the other way. Only the order
+  A, change, outcome, cue, B is read; "B ... than A" stays "to verify".
+* **Practical importance.** "A large and practically important improvement" is a conflict
+  when the interval is not wholly beyond the smallest effect size of interest, whichever
+  way the comparison runs. Hedged or negated wording ("not clear whether the benefit is
+  large enough to matter", "no meaningful difference", "negligible") is not judged by this
+  rule.
+* **Trends.** "A trend toward higher scores" is judged like a stated change: a conflict when
+  the interval includes zero.
+* **Unattached negations.** A claim that follows a negation the checker cannot attach, in the
+  same clause, is "to verify" instead of judged: "The diet did not produce a clinically
+  meaningful weight loss" was a false conflict in 0.5.1.
+* On the 405 sentences of the reader experiment, conflicts on misleading constructed
+  sentences rose from 65 to 129 of 140 (46% to 92%), with no new conflicts on correct
+  sentences (2 of 190; 0 of 43 published). These sentences were read while writing the
+  rules and follow fixed templates, so this is far from an unbiased accuracy estimate. See
+  VALIDATION.md.
+* New: ROADMAP.md (the optional reader layer planned for 0.6.0) and VALIDATION.md sections
+  on the reader experiment, the real-data trial and held-out reported sentences.
+* Regression tests: `tests/test_real_data_trial_052.py`.
+
 ## 0.5.1
 
 * A claim of significance ("significantly improved", "significantly different between the
