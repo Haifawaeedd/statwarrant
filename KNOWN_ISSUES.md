@@ -34,6 +34,15 @@ Regression tests are in `tests/test_significance_both_orders_051.py`. Limitation
   contrast is declared as "A minus B" and the sentence names the outcome with A alone, or
   in the order "A ... compared with / than B"; other orders and wordings are left as "to
   verify".
+* A stated minimum size ("improved exam performance by at least 3 points") is only "to
+  verify" when the minimal-effect test does not establish it (estimate 4.27, 95% CI 0.40 to
+  8.15, threshold 3). Whichever way the comparison runs, an effect of at least 3 points is
+  not established, so this should be a conflict. A plain "improved" gets "to verify" for
+  the direction wording, not a note that the size beyond the threshold is not established.
+  A correct sentence with an interval and a negation ("does not establish an improvement of
+  at least 3 points") gets six "to verify" parts, including an unattached negation: no false
+  conflict, but a heavy review load. Found in an outside trial of 0.5.3; to be fixed after
+  the frozen 0.5.3 evaluation.
 * Causal claims are recognised from verbs ("caused", "led to") but not from nouns: "The
   results prove causality" flags only "prove", not the causal claim ("causality",
   "causation", "causal relationship"). Found in an outside check of 0.5.3; to be fixed after
