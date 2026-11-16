@@ -76,6 +76,22 @@ project (1,000 PubMedQA cases, two models, several prompt conditions):
   ability ("better at medical reasoning" for strict answer correctness). 0.5.2 fixes the
   first two; the third is outside what a rule checker can judge.
 
+### Second numerical check (0.5.3)
+
+An outside check of the PyPI release of 0.5.3 matched SciPy, statsmodels and independent
+calculations on seven analyses: three ToothGrowth comparisons, two anorexia treatment-versus-
+control comparisons, and two coefficients of a multiple regression on the trees data with HC3
+standard errors. Three non-inferiority wordings gave "to verify" instead of the 0.5.2 false
+conflict, and a wrong p-value attributed explicitly to the zero test was still a conflict.
+ToothGrowth and anorexia had been used before, so this is a technical check, not a blind
+evaluation on new data.
+
+### Frozen evaluation
+
+`evaluation/human-review/run_frozen.py` runs one frozen version on the human-review cases
+after the reviews are frozen, and `scorecard.py` reports false reassurance, false alarms and
+the share sent to review against the adjudicated labels, with 95% intervals.
+
 ### Held-out sentences
 
 Sentences reported through the ["A sentence the linter got wrong"](.github/ISSUE_TEMPLATE/linter.yml)

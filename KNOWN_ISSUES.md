@@ -34,6 +34,10 @@ Regression tests are in `tests/test_significance_both_orders_051.py`. Limitation
   contrast is declared as "A minus B" and the sentence names the outcome with A alone, or
   in the order "A ... compared with / than B"; other orders and wordings are left as "to
   verify".
+* Causal claims are recognised from verbs ("caused", "led to") but not from nouns: "The
+  results prove causality" flags only "prove", not the causal claim ("causality",
+  "causation", "causal relationship"). Found in an outside check of 0.5.3; to be fixed after
+  the frozen 0.5.3 evaluation.
 * The checker does not judge what a measure means. "Increasing tokens made the model 51
   points better at medical reasoning" is not flagged when the measured outcome was strict
   answer correctness: the construct claim must be checked by hand. Declare `units` on the
