@@ -314,7 +314,7 @@ _DIRECTION = {
                            r"dropped|drops?|fell|falls?|fall|declined?|declines|declining|negative(?:ly)?)\b"),
     "better": re.compile(r"\b(?:improve[sd]?|improvements?|improving|better|outperform(?:s|ed|ing)?|superior|beats?|"
                          r"gains?|help(?:s|ed)?|benefit(?:s|ed)?|enhance[sd]?|effective|works|worked)\b"),
-    "worse": re.compile(r"\b(?:worse|worsen(?:s|ed|ing)?|harm(?:s|ed|ful)?|inferior|underperform(?:s|ed|ing)?|"
+    "worse": re.compile(r"\b(?:worse|worsen(?:s|ed|ing)?|harm(?:s|ed|ful)?|(?<!non-)(?<!non)inferior|underperform(?:s|ed|ing)?|"
                         r"hurts?|impair(?:s|ed)?|deteriorat(?:e|es|ed|ion))\b"),
 }
 
@@ -364,6 +364,7 @@ _WORD_PATTERNS = [
               r"(?:tests?|testing|analys[ie]s)\b"),
     ("_skip", r"\b(?:equivalence|minimal[- ]effects?|non-?inferiority) (?:tests?|testing|analys[ie]s|procedures?|"
               r"bounds?|margins?|regions?)\b|\btost\b"),
+    ("noninferiority", r"\b(?:non-?inferior(?:ity)?|not inferior|no (?:less|worse) (?:effective|than))\b"),
     ("ratio", r"\b(?:doubl(?:e|ed|es|ing)|tripl(?:e|ed|es|ing)|quadrupl(?:e|ed|es|ing)|halv(?:e|ed|es|ing)|"
               r"(?:twice|thrice|(?:two|three|four|five|ten) times)(?=\s+(?:as|the|that|higher|larger|greater|more|"
               r"lower|smaller|less|fewer)\b)|(?:two|three|four|five|ten)[- ]?fold|(?:by|in) half|half (?:as|the))\b"),
@@ -563,8 +564,11 @@ _OTHER_TESTS = re.compile(
     r"\b(?:permutation|randomi[sz]ation|bootstrap(?:ped)?|chi[- ]?squared?|fisher(?:'s)?(?: exact)?|exact|"
     r"mann[- ]whitney|wilcoxon|kruskal[- ]wallis|log[- ]rank|likelihood[- ]ratio|wald|anova|f|"
     r"kolmogorov[- ]smirnov|shapiro[- ]wilk|levene(?:'s)?|interaction|heterogeneity|trend|sensitivity|"
-    r"(?<!two )one[- ]sided|omnibus|post[- ]hoc|tukey(?:'s)?|mcnemar(?:'s)?|cochran(?:'s)?)[- ]"
+    r"(?<!two )one[- ]sided|omnibus|post[- ]hoc|tukey(?:'s)?|mcnemar(?:'s)?|cochran(?:'s)?|"
+    r"non-?inferiority|(?:non-?)?superiority)[- ]"
     r"(?:tests?|testing|analys[ie]s)\b|"
+    # "P<0.001 for noninferiority": the test named by its hypothesis alone
+    r"\b(?:non-?inferiority|(?:non-?)?superiority)\b|"
     r"\btests? (?:for|of) (?:interaction|heterogeneity|trend)\b|\bp (?:for|of) (?:interaction|heterogeneity|trend)\b")
 _ZERO_TEST = re.compile(r"\bzero[- ]tests?\b|\btests? (?:of|against|for) (?:zero|no (?:difference|effect))\b|"
                         r"\btests? of (?:the )?difference from zero\b|\bnull[- ]hypothesis tests?\b")
@@ -1176,6 +1180,12 @@ def _judge_hit(h: _Hit, ctx: Context, sign: Optional[int]) -> Tuple[str, str]:
     if named in ("equivalence", "minimal-effect", "ambiguous") and cat in (
             "significance", "nonsignificance", "evidence_absent", "marginal"):
         return _judge_named_test(cat, named, ctx)
+
+    if cat == "noninferiority":
+        return CHECK, ("statwarrant does not run a non-inferiority test, so this claim was not checked. Check it "
+                       "against the trial's non-inferiority margin and the matching one-sided test or interval; "
+                       f"the test of difference from zero ({z}, p = {fmt_p(ev.p_zero)}) answers a different "
+                       "question and must not replace it.")
 
     if cat in ("nonsignificance", "evidence_absent"):
         if ev.differs_from_zero and sign in (1, -1) and ev.direction == -sign:
@@ -2007,7 +2017,7 @@ _OPEN_QUESTION = re.compile(r"\b(?:whether|if)\b")
 _TREND_BEFORE = re.compile(r"\btrend(?:s|ed|ing)?\s+(?:toward|towards|to|for)\s+(?:a\s+|an\s+)?$")
 _ORDERING_CUE = re.compile(r"\bthan\b|\b(?:inverse(?:ly)?|positive(?:ly)?|negative(?:ly)?)\b|\b(?:outperform|underperform|outscore|beat|exceed|surpass|trail)\w*|"
                           r"\b\w+er\s+(?:for|in|with|among|under|on)\b")
-_IMPLICIT_COMPARATIVE = re.compile(r"\b(?:higher|lower|greater|fewer|better|worse|superior|inferior)\b")
+_IMPLICIT_COMPARATIVE = re.compile(r"\b(?:higher|lower|greater|fewer|better|worse|superior|(?<!non-)(?<!non)inferior)\b")
 _DIRECT_SIGN = re.compile(r"\s*(?:the\s+)?(?:estimated\s+)?(?:effect(?:\s+estimate)?|difference|estimate|contrast|coefficient)\s+"
                           r"(?:is|was)\s+(?:positive|negative)\s*[.!?]?\s*")
 _DIRECT_SIGN_SIGNIFICANCE = re.compile(
@@ -2182,6 +2192,7 @@ _ACTION = {
     "reported_number": "Copy the number from the result.",
     "range": "Copy the interval from the result, lower end first.",
     "unattached_negation": "Check the negated part by hand.",
+    "noninferiority": "Check the claim against the non-inferiority margin and test reported for the trial.",
     "neither_equivalence": "Check both negated claims and their bounds against the result.",
     "neither_established": "Check each part against the result.",
     "ratio": "Report the estimate and interval; state ratios only on a ratio (log) scale or with a baseline.",
@@ -2277,6 +2288,14 @@ def check_sentence(sentence: str, ctx: Context) -> CheckResult:
     def judge_with_safeguards(h: _Hit):
         if h.category == "comparison_unbound":
             return CHECK, review_reason
+        # In a sentence that claims non-inferiority, an unnamed p-value or significance word most
+        # likely belongs to that test, which statwarrant does not run: never judge it against the
+        # zero test, and never suggest replacing it with the zero test's value.
+        if (h.category in ("p_value", "significance", "nonsignificance", "marginal") and
+                h.data.get("named") in (None, "other") and any(x.category == "noninferiority" for x in hits)):
+            return CHECK, ("The sentence claims non-inferiority, so this most likely refers to the non-inferiority "
+                           "test, which statwarrant does not run. Check it against that test; do not replace it "
+                           "with the zero test's value.")
         if unbound:
             # A claim of significance cannot be true in either order when the zero test is
             # not significant at all, so it does not depend on binding the comparison (the
@@ -2368,6 +2387,10 @@ def check_sentence(sentence: str, ctx: Context) -> CheckResult:
         action = _ACTION.get(cat, "Check this statement against the result.") if status != CONSISTENT else ""
         if status == CHECK and (reason == review_reason or reason.startswith(_UNBOUND_PREFIX)):
             action = "Verify the compared groups or time points, their order and the declared contrast by hand."
+        if status == CHECK and cat in ("p_value", "significance", "nonsignificance", "marginal"):
+            # A p-value that may belong to another test is never to be replaced by the zero test's.
+            action = ("Check it against the test it belongs to; do not replace it with the value of a "
+                      "different test.")
         if status == CHECK and any("unit_span" in h.data for h in hs):
             action = "Check the intended quantity, unit and any conversion by hand."
         rule = "direction" if cat == "comparison_unbound" else cat.replace("_", "-")

@@ -15,7 +15,7 @@ importance, and it can flag common misreadings in a sentence you are about to wr
 > and the sentence linter's accuracy has not been measured. Use it as an aid to careful
 > reporting, not as a validator, and check its output. Reports of wrong results are very welcome.
 
-> **0.5.2 — public trial.** Please try it on your own results and tell us where it is
+> **0.5.3 — public trial.** Please try it on your own results and tell us where it is
 > wrong. The sentence checker is pattern-based and partial: a **conflict** is an apparent
 > contradiction that can itself be mistaken; **not verified** lists some parts it could
 > not check. No warning is never an approval. Always check group order, outcome, contrast and the complete
@@ -118,9 +118,9 @@ result. **Not verified** lists parts it recognised but could not check, for you 
 pip install statwarrant
 ```
 
-Pin the version you used (for example `pip install statwarrant==0.5.2`), so your analysis
+Pin the version you used (for example `pip install statwarrant==0.5.3`), so your analysis
 can be reproduced. Requires Python 3.9+, NumPy 1.22+ and SciPy 1.11+. To install a tagged
-commit from GitHub instead: `pip install "git+https://github.com/Haifawaeedd/statwarrant@v0.5.2"`.
+commit from GitHub instead: `pip install "git+https://github.com/Haifawaeedd/statwarrant@v0.5.3"`.
 If an earlier development snapshot is installed, add `--force-reinstall` so it is not
 reused silently.
 
