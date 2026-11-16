@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.5.3
+
+A test statwarrant does not run is never judged against, or replaced by, the zero test.
+
+* **Non-inferiority.** "P<0.001 for noninferiority", "the noninferiority test was
+  significant" and "Aspirin was noninferior to heparin (P<0.001)" were conflicts in 0.5.2:
+  the p-value was compared with the zero test (p = 0.75 in PREVENT CLOT) and the advice was
+  to copy the zero test's p-value, which would have put a wrong value in the paper. They are
+  now "to verify", with the advice to check them against the non-inferiority test. A
+  non-inferiority claim itself is listed as not checked. Superiority and non-superiority
+  tests are recognised as other tests too. A p-value explicitly tied to the zero test is
+  still judged.
+* "non-inferior" is no longer read as the direction word "inferior".
+* Any p-value or significance statement sent to review now says to check it against the
+  test it belongs to, never to copy the zero test's value.
+* Regression tests from PREVENT CLOT (O'Toole et al., NEJM 2023):
+  `tests/test_noninferiority_053.py`.
+
 ## 0.5.2
 
 Fixes from the first real-data trial (11 paired comparisons from an LLM evaluation project,
