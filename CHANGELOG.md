@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.5.4
+
+Two known issues from outside checks of 0.5.3, fixed before the human-review evaluation
+started. This is the version frozen for that evaluation.
+
+* **Stated size bounds.** "The new method improved exam performance by at least 3 points"
+  (estimate 4.27, 95% CI 0.40 to 8.15) was only "to verify" because the comparison could
+  not be tied to the declared contrast. An effect of at least 3 points is not established
+  whichever way the comparison runs, so "by at least / more than / over N" is now a
+  conflict when the interval rules it out in both orders. Negated or hedged bounds, and
+  numbers written with another unit, are unchanged.
+* **Causal nouns.** "The results prove causality" flagged only "prove". "causality" and
+  "causation" are now recognised as causal claims (a conflict with a declared
+  observational design, otherwise "to verify").
+* Regression tests: `tests/test_known_issues_054.py`.
+
 ## 0.5.3
 
 A test statwarrant does not run is never judged against, or replaced by, the zero test.

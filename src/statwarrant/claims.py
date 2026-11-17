@@ -441,7 +441,7 @@ _WORD_PATTERNS = [
                        r"any (?:student|user|patient|person|participant|setting|context|population))\b"),
     # "cause-specific mortality", "all-cause death", "causes of death" name outcomes, not causation
     ("_skip", r"\b(?:all[- ])?causes?[- ]specific\b|\ball[- ]cause\b|\bcauses? of (?:death|mortality|admission)\b"),
-    ("causal", r"\b(?:caus(?:e|es|ed|ing|al|ally)|led to|leads to|lead to|due to|because of|result(?:s|ed)? in|"
+    ("causal", r"\b(?:caus(?:e|es|ed|ing|al|ally|ality|ation)|led to|leads to|lead to|due to|because of|result(?:s|ed)? in|"
                r"attributable to|driven by|responsible for)\b"),
     ("nonzero", r"\b(?:differs?|differed|different) from zero\b|\bnon-?zero\b|\bdetectable\b"),
     ("importance", r"\b(?:meaningful(?:ly)?|important|practically (?:significant|relevant|important)|"
@@ -2327,6 +2327,21 @@ def check_sentence(sentence: str, ctx: Context) -> CheckResult:
                 if status == CONFLICT:
                     return CONFLICT, (f"{reason} This holds whichever way the comparison runs, so it does not "
                                       f"depend on the declared contrast.")
+            # A stated bound on the size ("by at least 3", "by more than 3", "by at most 3") is
+            # judged against the absolute size of the effect; when the interval rules it out in
+            # both orders, the claim fails whichever way the comparison runs.
+            if (h.category == "magnitude" and ctx.comparison_origin_is_zero and _affirmed(original, h, hits) and
+                    (h.data.get("groups") or (None,))[0] is not None and
+                    not any(h.data.get(k) for k in ("pp", "pp_alt", "pp_units", "multiple_models")) and
+                    not re.match(r"\s*(?:[a-z]+\s+)?" + _PP, original[h.end:]) and
+                    ("unit" not in h.data or (not h.data.get("unit_compound") and
+                                              h.data["unit"] == _SIMPLE_UNITS.get((ctx.units or "").strip().lower())))):
+                qual = ((h.data.get("groups") or (None,))[0] or "").strip()
+                if qual in _LOWER_Q or qual in _UPPER_Q:
+                    status, reason = _judge_number(h, ctx, None, known)
+                    if status == CONFLICT:
+                        return CONFLICT, (f"{reason} This holds whichever way the comparison runs, so it does "
+                                          f"not depend on the declared contrast.")
             role = _number_hit_role(h, original, ctx) if h.category == "number" else None
             if (h in embedded or h.category in ("importance", "big", "significance", "nonsignificance", "evidence",
                                                 "evidence_absent", "marginal", "small", "magnitude", "percentage",
