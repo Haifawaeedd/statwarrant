@@ -604,6 +604,7 @@ class Result:
     checked: list = field(default_factory=list)
     _design: Optional[DesignTable] = field(default=None, repr=False)
     estimand: Optional[str] = None
+    reviews: list = field(default_factory=list)
 
     # ------------------------------------------------------------------ #
     def check(self, sentence: str, *, record: bool = True) -> CheckResult:
@@ -616,6 +617,25 @@ class Result:
         if record:
             self.checked.append(res)
         return res
+
+    def review(self, sentence: str, llm, *, rewrite: bool = True, record: bool = True):
+        """Read a sentence with a language model and judge what it claims (experimental).
+
+        The model (see :mod:`statwarrant.llm`) lists the sentence's claims as structured
+        assertions and notes what numbers cannot check; statwarrant judges every assertion
+        with its own tests and also runs the rule-based check. If there are problems and
+        ``rewrite`` is true, the model proposes a rewrite from the allowed statements, which
+        is checked again and offered only if nothing in it conflicts with the result.
+
+        The sentence and the plan's descriptions are sent to the model's provider. The
+        model is not shown the result's numbers while it reads. With ``record`` (default),
+        the review is kept in the report. Never an approval of the sentence.
+        """
+        from .llm import review as _review
+        out = _review(self, sentence, llm, rewrite=rewrite, record=record)
+        if record:
+            self.reviews.append(out)
+        return out
 
     def verify(self, assertion) -> "Verdict":
         """Judge one structured assertion (an :class:`~statwarrant.Assertion` or a dict) against this result.
@@ -672,6 +692,7 @@ class Result:
             "thresholds": dict(th.to_dict(), declared_threshold=self._declared_position()),
             "claims": self.claims.to_dict(),
             "checked_sentences": [c.to_dict() for c in self.checked],
+            "reviewed_sentences": [r.to_dict() for r in self.reviews],
             "not_verified": self.not_verified(),
         }
         if self.context.baseline is not None:
@@ -789,6 +810,11 @@ class Result:
                 lines += [f"  - {w.status}, {w.rule}, \"{w.text}\": {w.reason}" for w in c.warnings]
                 if c.unchecked:
                     lines.append("  - not checked: " + ", ".join(f"\"{u}\"" for u in c.unchecked))
+        if self.reviews:
+            lines += ["", "### Sentences reviewed with a language model (experimental)",
+                      "A language model listed each sentence's claims; statwarrant judged them with its own tests. "
+                      "No warning is not a clearance.", ""]
+            lines += [r.to_markdown() for r in self.reviews]
         lines += ["", "### Not verified by statwarrant"] + [f"- {n}" for n in self.not_verified()]
         if self._design is not None:
             lines += ["", self._design.to_markdown()]
