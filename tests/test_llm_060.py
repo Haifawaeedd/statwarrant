@@ -48,6 +48,7 @@ def test_conflict_found_and_checked_rewrite_offered():
     assert out.suggestion_rules.level != "conflict"
     assert res.to_dict()["reviewed_sentences"][0]["suggestion"] == allowed
     assert "Sentences reviewed with a language model" in res.to_markdown()
+    assert res.checked == []  # the rule check is reported once, inside the review
 
 
 def test_rewrite_that_still_conflicts_is_discarded():

@@ -271,7 +271,7 @@ def review(res, sentence: str, llm: LLM, *, rewrite: bool = True, record: bool =
     """Read ``sentence`` with ``llm`` and judge what it claims against ``res``. See :meth:`Result.review`."""
     if not isinstance(sentence, str) or not sentence.strip():
         raise ValueError("give a sentence to review")
-    rules = res.check(sentence, record=record)
+    rules = res.check(sentence, record=False)  # kept with the review itself, not twice in the report
     verdicts, meaning, errors = _read(res, sentence, llm)
     out = Review(sentence, rules, verdicts, meaning, errors=errors, model=getattr(llm, "model", None))
     if rewrite and _has_problem(rules, verdicts) and not any("could not be used" in e for e in errors):
