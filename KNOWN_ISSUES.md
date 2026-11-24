@@ -4,6 +4,25 @@ These are known, unresolved issues. The examples are targeted checks, not estima
 of how often errors occur. Use statwarrant as an aid, not an automated validator;
 independently check calculations and the full text of research claims.
 
+
+## In 0.6.0 (in development)
+
+* **Language-model reader not evaluated.** `res.review()` has been tested only with scripted
+  fake models. Its accuracy depends on the model and has not been measured against human
+  labels; until it is, treat its readings as suggestions to check. It sends the sentence and
+  the plan's descriptions to the model's provider.
+* **Direction comes from the reader.** In `res.review()` and through the MCP server, the
+  direction of a claim relative to the declared contrast is read by the model or assistant;
+  statwarrant cannot verify that reading. Each verdict records the quoted words so it can be
+  checked.
+* **Relevance test with an estimated standard error.** The per-side level is chosen from the
+  observed standard error. Simulation (VALIDATION.md) found the size within Monte Carlo error of
+  alpha for n from 5 to 200 (largest 0.0504 at alpha 0.05); it is not an exact test with unknown variance.
+* **SciPy variants.** A SciPy t-test result does not record trimming, Welch or pooling.
+  statwarrant notes this and accepts `estimand=`, but cannot detect the variant itself.
+* **Public MCP servers.** Sentences sent to a hosted server leave your computer; run the
+  server locally for confidential text.
+
 ## Changed in 0.5.4
 
 Two issues found in outside checks of 0.5.3 were fixed before the human-review evaluation

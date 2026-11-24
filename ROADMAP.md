@@ -7,6 +7,10 @@ zero, and report held-out results in [VALIDATION.md](VALIDATION.md).
 
 ## 0.6.0: optional reader layer
 
+Status: built on the `feature/0.6.0` branch (structured assertions, `res.review()`, MCP server,
+relevance test, estimand). Still to do before release: step 4 below (evaluation), and the
+within-group change warning.
+
 Rules match words; they cannot judge meaning. Some overclaims need a reader:
 
 * a measure described as a broader ability ("51 points better at medical reasoning" when

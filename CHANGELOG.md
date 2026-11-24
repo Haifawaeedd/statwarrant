@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.6.0 (in development)
+
+New, all optional; existing results and fingerprints are unchanged.
+
+* **Structured claims.** `Assertion(kind, direction, value, polarity, quote)` and
+  `Result.verify()` judge one claim written as fields with the same tests as the claim
+  contract: supported, not established, contradicted or to verify. Denials and hedges are
+  never cleared. A verdict concerns the statistical proposition only, never wording.
+* **Language-model reader (experimental).** `Result.review(sentence, llm=...)`: a model lists
+  the sentence's claims as assertions and notes what numbers cannot check; statwarrant judges
+  them and runs the rule-based checker. The model is not shown the result's numbers. A
+  rewrite from the allowed statements is offered only if it passes the checks again. Any
+  provider: `AnthropicLLM`, `OpenAILLM` (also OpenAI-compatible local servers),
+  `CallableLLM`. Extras: `statwarrant[anthropic]`, `statwarrant[openai]`. Not yet evaluated.
+* **MCP server.** `statwarrant[mcp]` installs `statwarrant-mcp` (stdio, or Streamable HTTP
+  with `--http`) with read-only tools `analyze_result`, `verify_assertions` and
+  `check_sentences`, for Claude, ChatGPT and other assistants. A Hugging Face Space recipe
+  is in `deploy/huggingface-space/`.
+* **Test for relevant differences.** `declare(met_method="relevance")` runs the minimal-effect
+  test of Hodges and Lehmann (1954): largest type I error exactly alpha, more power for wide
+  bounds. The default `"split"` method is unchanged; its largest type I error is close to
+  alpha / 2 for bounds wider than about one standard error, which is now documented.
+* **Estimand.** `analyze(..., estimand="...")` records what the estimate is. SciPy t-test
+  results, which do not record trimming (Yuen's test), Welch or pooling, get a note when no
+  estimand is given: with `trim=0.2` the estimate is a difference of trimmed means.
+* Tests: `tests/test_relevance_060.py`, `test_estimand_060.py`, `test_assertions_060.py`,
+  `test_llm_060.py`, `test_mcp_server_060.py` (1,945 tests in total).
+
 ## 0.5.4
 
 Two known issues from outside checks of 0.5.3, fixed before the human-review evaluation
