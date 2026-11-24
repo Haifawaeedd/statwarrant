@@ -14,6 +14,7 @@ and get the claims it supports, the claims it does not, and why.
 from ._core import Evidence, Thresholds, evaluate
 from ._version import __version__
 from .adapters import AdapterMismatch
+from .assertions import Assertion, Verdict
 from .claims import CheckResult, Claim, Claims, Part
 from .design import DesignPoint, DesignTable, design_point
 from .plan import Plan, Result, declare
@@ -30,6 +31,8 @@ __all__ = [
     "CheckResult",
     "Part",
     "AdapterMismatch",
+    "Assertion",
+    "Verdict",
     "DesignPoint",
     "DesignTable",
     "design_point",

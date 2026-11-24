@@ -25,6 +25,7 @@ from ._precision import checked_float
 from ._ratio_display import ratio_scale_note
 from ._version import __version__
 from .claims import CheckResult, Claims, Context, _uncertain_log_base, build_claims, check_sentence, fmt, fmt_bound, fmt_bounds, fmt_ci, fmt_p
+from .assertions import Verdict, verify as verify_assertion
 from .design import DesignTable, design_table
 
 # An estimate given with an interval may differ from the interval's midpoint by
@@ -615,6 +616,14 @@ class Result:
         if record:
             self.checked.append(res)
         return res
+
+    def verify(self, assertion) -> "Verdict":
+        """Judge one structured assertion (an :class:`~statwarrant.Assertion` or a dict) against this result.
+
+        The verdict ("supported", "not_established", "contradicted" or "to_verify") concerns the
+        statistical proposition only, never the wording of a sentence.
+        """
+        return verify_assertion(assertion, self.context)
 
     @property
     def thresholds(self) -> Thresholds:
