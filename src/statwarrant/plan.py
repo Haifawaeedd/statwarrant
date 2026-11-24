@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 from typing import Optional, Sequence, Tuple, Union
 
 from . import adapters
-from ._core import MIN_ALPHA, POLICIES, Evidence, Thresholds, evaluate, level_text
+from ._core import MET_METHODS, MIN_ALPHA, POLICIES, Evidence, Thresholds, evaluate, level_text
 from ._precision import checked_float
 from ._ratio_display import ratio_scale_note
 from ._version import __version__
@@ -103,6 +103,7 @@ class Plan:
     registration: Optional[str] = None
     design: Optional[str] = None
     subgroup: Optional[str] = None
+    met_method: str = "split"
 
     # ------------------------------------------------------------------ #
     def analyze(
@@ -314,7 +315,7 @@ class Plan:
             baseline = checked_float(baseline, "baseline")
             if not math.isfinite(baseline) or baseline == 0:
                 raise ValueError("baseline must be a finite, non-zero number (a relative change needs a non-zero reference)")
-        ev = evaluate(est, s, d, self.alpha, self.interval_policy, self.sesoi)
+        ev = evaluate(est, s, d, self.alpha, self.interval_policy, self.sesoi, self.met_method)
         if baseline is not None:
             relative = [x / baseline for x in (ev.estimate, *ev.zero_interval)]
             if not all(math.isfinite(x) for x in relative):
@@ -353,6 +354,9 @@ class Plan:
                 out["design"] = self.design
             if self.subgroup is not None:
                 out["subgroup"] = self.subgroup
+            # added in 0.6.0; hashed only when not the default, so earlier plans keep their fingerprints
+            if self.met_method != "split":
+                out["met_method"] = self.met_method
         return out
 
     def fingerprint_for(self, version: int) -> str:
@@ -470,6 +474,7 @@ def declare(
     registration: Optional[str] = None,
     design: Optional[str] = None,
     subgroup: Optional[str] = None,
+    met_method: str = "split",
 ) -> Plan:
     """Fix the rules of interpretation before looking at the result.
 
@@ -505,6 +510,13 @@ def declare(
     subgroup : str, optional
         When the result is itself a subgroup result ("patients on mechanical
         ventilation"): sentences naming that subgroup are not flagged as subgroup claims.
+    met_method : {"split", "relevance"}
+        How the minimal-effect test ("the effect exceeds the SESOI") controls its error.
+        "split" (default) reads the (1 - alpha) interval, alpha / 2 per direction; its
+        largest type I error is close to alpha / 2 unless the bounds are near zero.
+        "relevance" is the test for relevant differences of Hodges and Lehmann (1954):
+        its largest type I error is exactly alpha, which gives more power for wide bounds.
+        Part of the plan fingerprint when not the default.
     """
     if interval_policy not in POLICIES:
         raise ValueError(f"interval_policy must be one of {POLICIES}")
@@ -520,6 +532,8 @@ def declare(
                              "'cohort', 'case-control', 'cross-sectional'), or omitted")
     if subgroup is not None and not str(subgroup).strip():
         raise ValueError("subgroup must be a non-empty description, or omitted")
+    if met_method not in MET_METHODS:
+        raise ValueError(f"met_method must be one of {MET_METHODS}")
 
     bounds = None
     if sesoi is not None:
@@ -555,6 +569,7 @@ def declare(
         registration=registration,
         design=design,
         subgroup=None if subgroup is None else str(subgroup),
+        met_method=met_method,
     )
 
 
@@ -660,8 +675,10 @@ class Result:
             out.append("- No positive threshold gives an effect beyond it: the difference from zero is not "
                        "established at the declared significance level.")
         else:
+            how = ("relevance test at the declared alpha" if th.met_method == "relevance"
+                   else f"{level_text(th.met_level)} interval")
             out.append(f"- An effect larger than ±d is established for every threshold d below "
-                       f"**{fmt_down(th.met_below)}{u}** ({level_text(th.met_level)} interval; cut-off about "
+                       f"**{fmt_down(th.met_below)}{u}** ({how}; cut-off about "
                        f"{th.met_below:.6g}).")
         out.append(f"- Equivalence within ±d is established for every threshold d above "
                    f"**{fmt_up(th.equivalence_above)}{u}** ({level_text(th.equivalence_level)} interval; "
@@ -697,7 +714,8 @@ class Result:
                          f"because: {p.sesoi_source}")
         else:
             lines.append("- **Smallest effect size of interest:** none declared")
-        lines.append(f"- **Alpha:** {p.alpha}; **interval policy:** {p.interval_policy}")
+        lines.append(f"- **Alpha:** {p.alpha}; **interval policy:** {p.interval_policy}"
+                     + ("; **minimal-effect test:** relevance (Hodges & Lehmann, 1954)" if p.met_method == "relevance" else ""))
         lines.append(f"- **Plan fingerprint (v{p.FINGERPRINT_VERSION}):** `{p.fingerprint[:16]}`")
         lines.append(f"- **Registration (your reference, not verified):** "
                      f"{p.registration or 'none given; the fingerprint alone proves nothing'}")
@@ -714,8 +732,9 @@ class Result:
             lines.append(f"| Equivalent (TOST) | {level_text(ev.equivalence_level)} {fmt_ci(elo, ehi)} | "
                          f"{fmt_p(ev.p_equivalence)} (one-sided, vs {fmt(ev.equivalence_threshold)}) | "
                          f"{'yes' if ev.equivalent else 'not established'} |")
+            kind = "relevance test" if ev.met_method == "relevance" else "one-sided"
             lines.append(f"| Exceeds SESOI (MET) | {level_text(ev.met_level)} {fmt_ci(mlo, mhi)} | "
-                         f"{fmt_p(ev.p_minimal_effect)} (one-sided, vs {fmt(ev.met_threshold)}) | "
+                         f"{fmt_p(ev.p_minimal_effect)} ({kind}, vs {fmt(ev.met_threshold)}) | "
                          f"{'yes' if ev.exceeds_sesoi else 'not established'} |")
         lines += ["", "### Every threshold at once", ""]
         lines.append("Computed from the same estimate and standard error, not new tests. Decisions use test-statistic "
