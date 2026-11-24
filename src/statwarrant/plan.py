@@ -119,6 +119,7 @@ class Plan:
         baseline: Optional[Number] = None,
         label: Optional[str] = None,
         ratio: bool = False,
+        estimand: Optional[str] = None,
     ) -> "Result":
         """Interpret one effect.
 
@@ -143,6 +144,12 @@ class Plan:
         absolute and the relative change side by side. ``label`` names this
         result (e.g. "H1, main effect") so sentences and reports point to it.
 
+        ``estimand`` says what quantity the estimate is ("difference in 20% trimmed
+        means", "log odds ratio for treatment"). It is your own description: reported,
+        never verified. Give it for SciPy results in particular: a SciPy t-test result
+        does not record whether it was trimmed (Yuen's test), Welch's or pooled, so
+        statwarrant cannot tell a difference of trimmed means from a difference of means.
+
         Explicit integral inputs that cannot be represented exactly as floats
         are refused. Numbers already rounded to floats cannot be recovered.
         """
@@ -152,6 +159,8 @@ class Plan:
 
         if baseline is not None:
             checked_float(baseline, "baseline")
+        if estimand is not None and not str(estimand).strip():
+            raise ValueError("estimand must be a non-empty description, or omitted")
         est_input = checked_float(estimate, "estimate") if result is None and estimate is not None else None
         se_input = checked_float(se, "se") if se is not None else None
         df_input = checked_float(df, "df") if result is None and df is not None else None
@@ -268,7 +277,15 @@ class Plan:
             d = df_input
             source = "estimate and standard error"
 
+        if source.startswith("scipy:") and estimand is None:
+            provenance.append(
+                "SciPy's t-test result does not record which variant produced it. With trim > 0 (Yuen's test) "
+                "the estimate is a difference of trimmed means, not of means; Welch's and the pooled test differ "
+                "in their standard errors. State what was estimated with estimand=... so the report says it.")
         res = self._finish(est, s, d, source, baseline, null, label, raw)
+        if estimand is not None:
+            res.estimand = str(estimand)
+            res.raw_input["estimand"] = str(estimand)
         if ratio and self.units and not _log_scale(self.units):
             provenance.append(f"ratio=True analyses the log of the ratio, so the estimate, interval and thresholds reported are log ratios; the "
                               f"declared units ({self.units!r}) do not say so. Declare units such as 'log "
@@ -585,6 +602,7 @@ class Result:
     raw_input: dict = field(default_factory=dict)
     checked: list = field(default_factory=list)
     _design: Optional[DesignTable] = field(default=None, repr=False)
+    estimand: Optional[str] = None
 
     # ------------------------------------------------------------------ #
     def check(self, sentence: str, *, record: bool = True) -> CheckResult:
@@ -606,7 +624,7 @@ class Result:
     def not_verified(self) -> list:
         """What statwarrant does not check, for this result."""
         items = [
-            "That the outcome, contrast and scope descriptions are accurate: they are your own text.",
+            "That the outcome, contrast, scope and estimand descriptions are accurate: they are your own text.",
             "Whether the design supports causal claims (randomisation, confounding).",
             "Whether the result generalises beyond the declared scope.",
             "Whether the model behind the estimate and standard error is appropriate "
@@ -638,6 +656,7 @@ class Result:
             "label": self.label,
             "plan": self.plan.to_dict(),
             "input": self.source,
+            "estimand": self.estimand,
             "raw_input": self.raw_input,
             "null_value": self.null,
             "evidence": self.evidence.to_dict(),
@@ -707,6 +726,8 @@ class Result:
         lines.append(f"- **Outcome:** {p.outcome or 'not stated'}")
         lines.append(f"- **Contrast:** {p.contrast or 'not stated'}")
         lines.append(f"- **Scope:** {p.scope or 'not stated'}")
+        if self.estimand:
+            lines.append(f"- **Estimand:** {self.estimand}")
         lines.append(f"- **Input:** {self.source}")
         lines += ["", "### Declared plan (timing not verified)"]
         if p.sesoi:
