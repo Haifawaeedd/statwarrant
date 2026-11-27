@@ -1,8 +1,9 @@
 # Changelog
 
-## 0.6.0 (in development)
+## 0.6.0
 
-New, all optional; existing results and fingerprints are unchanged.
+New, all optional; existing results and fingerprints are unchanged. This release also
+contains the two 0.5.4 fixes below; 0.5.4 itself was not published separately.
 
 * **Structured claims.** `Assertion(kind, direction, value, polarity, quote)` and
   `Result.verify()` judge one claim written as fields with the same tests as the claim
@@ -13,7 +14,8 @@ New, all optional; existing results and fingerprints are unchanged.
   them and runs the rule-based checker. The model is not shown the result's numbers. A
   rewrite from the allowed statements is offered only if it passes the checks again. Any
   provider: `AnthropicLLM`, `OpenAILLM` (also OpenAI-compatible local servers),
-  `CallableLLM`. Extras: `statwarrant[anthropic]`, `statwarrant[openai]`. Not yet evaluated.
+  `CallableLLM`. Extras: `statwarrant[anthropic]`, `statwarrant[openai]`. Experimental: tested
+  only with scripted models, its accuracy has not been measured.
 * **MCP server.** `statwarrant[mcp]` installs `statwarrant-mcp` (stdio, or Streamable HTTP
   with `--http`) with read-only tools `analyze_result`, `verify_assertions` and
   `check_sentences`, for Claude, ChatGPT and other assistants. A Hugging Face Space recipe
@@ -28,10 +30,10 @@ New, all optional; existing results and fingerprints are unchanged.
 * Tests: `tests/test_relevance_060.py`, `test_estimand_060.py`, `test_assertions_060.py`,
   `test_llm_060.py`, `test_mcp_server_060.py` (1,945 tests in total).
 
-## 0.5.4
+## 0.5.4 (not published separately; included in 0.6.0)
 
 Two known issues from outside checks of 0.5.3, fixed before the human-review evaluation
-started. This is the version frozen for that evaluation.
+started.
 
 * **Stated size bounds.** "The new method improved exam performance by at least 3 points"
   (estimate 4.27, 95% CI 0.40 to 8.15) was only "to verify" because the comparison could

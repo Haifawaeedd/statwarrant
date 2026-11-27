@@ -1,6 +1,6 @@
 """Run one frozen statwarrant version on cases.csv, after the human reviews are frozen.
 
-    python run_frozen.py cases.csv --version 0.5.4 --out tool_outputs.csv
+    python run_frozen.py cases.csv --version 0.6.0 --out tool_outputs.csv
 
 Refuses to run on any other installed version, records the input file's SHA-256, and never
 reads the reviewer or adjudication files. Each case is checked against the result described
@@ -79,7 +79,7 @@ def result_for(plan, row):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("cases")
-    ap.add_argument("--version", required=True, help="the frozen version, e.g. 0.5.4")
+    ap.add_argument("--version", required=True, help="the frozen version, e.g. 0.6.0")
     ap.add_argument("--out", default="tool_outputs.csv")
     a = ap.parse_args()
     if sw.__version__ != a.version:

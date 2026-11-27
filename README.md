@@ -15,16 +15,16 @@ importance, and it can flag common misreadings in a sentence you are about to wr
 > and the sentence linter's accuracy has not been measured. Use it as an aid to careful
 > reporting, not as a validator, and check its output. Reports of wrong results are very welcome.
 
-> **0.5.4 — public trial.** Please try it on your own results and tell us where it is
+> **0.6.0 — public trial.** Please try it on your own results and tell us where it is
 > wrong. The sentence checker is pattern-based and partial: a **conflict** is an apparent
 > contradiction that can itself be mistaken; **not verified** lists some parts it could
 > not check. No warning is never an approval. Always check group order, outcome, contrast and the complete
 > sentence yourself. See [KNOWN_ISSUES.md](KNOWN_ISSUES.md).
 
-> **0.6.0 (in development, not yet on PyPI).** Adds structured claims (`res.verify`), an
-> optional language-model reader (`res.review`), an MCP server for Claude, ChatGPT and other
-> assistants, the test for relevant differences as a minimal-effect test, and an estimand
-> field. The language-model reader has not been evaluated yet; see [KNOWN_ISSUES.md](KNOWN_ISSUES.md).
+> **New in 0.6.0.** Structured claims (`res.verify`), an optional language-model reader
+> (`res.review`), an MCP server for Claude, ChatGPT and other assistants, the test for
+> relevant differences as a minimal-effect test, and an estimand field. The language-model
+> reader is **experimental**: its accuracy has not been measured; see [KNOWN_ISSUES.md](KNOWN_ISSUES.md).
 
 **Try it** in the [quick-start notebook on Colab](https://colab.research.google.com/github/Haifawaeedd/statwarrant/blob/main/examples/quickstart.ipynb)
 (nothing to install). **Found a sentence the checker judged wrongly?**
@@ -127,9 +127,9 @@ result. **Not verified** lists parts it recognised but could not check, for you 
 pip install statwarrant
 ```
 
-Pin the version you used (for example `pip install statwarrant==0.5.4`), so your analysis
+Pin the version you used (for example `pip install statwarrant==0.6.0`), so your analysis
 can be reproduced. Requires Python 3.9+, NumPy 1.22+ and SciPy 1.11+. To install a tagged
-commit from GitHub instead: `pip install "git+https://github.com/Haifawaeedd/statwarrant@v0.5.4"`.
+commit from GitHub instead: `pip install "git+https://github.com/Haifawaeedd/statwarrant@v0.6.0"`.
 If an earlier development snapshot is installed, add `--force-reinstall` so it is not
 reused silently.
 

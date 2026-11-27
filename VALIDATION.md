@@ -1,6 +1,6 @@
 # How statwarrant is checked
 
-This page lists what has been checked, how, and what has not. Version 0.5.0; additions for 0.6.0 are marked.
+This page lists what has been checked, how, and what has not. Version 0.6.0; additions for 0.6.0 are marked.
 
 ## Statistics
 
@@ -22,7 +22,7 @@ and the decisions follow the published intervals. Of the 7 p-values printed in t
 not reproduced exactly. See the
 [published-paper experiment](https://github.com/Haifawaeedd/statwarrant/blob/main/KNOWN_ISSUES.md#sentences-from-published-papers).
 
-**Environments.** The test suite (about 1,070 tests in 0.5.0; 1,945 on the 0.6.0 branch, including property-based tests) passes
+**Environments.** The test suite (about 1,070 tests in 0.5.0; 1,945 in 0.6.0, including property-based tests) passes
 on Python 3.9, 3.10 with the oldest supported NumPy 1.22.4, SciPy 1.11.4 and statsmodels
 0.14.0, and 3.13 with NumPy 2.5 and SciPy 1.18, on Linux. Continuous integration is set up
 to run it on Python 3.9 to 3.13 and on macOS and Windows; check the badge on the README for

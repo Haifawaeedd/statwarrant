@@ -1,11 +1,11 @@
-# Known issues in statwarrant 0.5.4 (experimental alpha)
+# Known issues in statwarrant 0.6.0 (experimental alpha)
 
 These are known, unresolved issues. The examples are targeted checks, not estimates
 of how often errors occur. Use statwarrant as an aid, not an automated validator;
 independently check calculations and the full text of research claims.
 
 
-## In 0.6.0 (in development)
+## New in 0.6.0
 
 * **Language-model reader not evaluated.** `res.review()` has been tested only with scripted
   fake models. Its accuracy depends on the model and has not been measured against human
@@ -23,7 +23,7 @@ independently check calculations and the full text of research claims.
 * **Public MCP servers.** Sentences sent to a hosted server leave your computer; run the
   server locally for confidential text.
 
-## Changed in 0.5.4
+## Changed in 0.5.4 (included in 0.6.0)
 
 Two issues found in outside checks of 0.5.3 were fixed before the human-review evaluation
 started (no evaluation sentences had been collected). Regression tests are in
