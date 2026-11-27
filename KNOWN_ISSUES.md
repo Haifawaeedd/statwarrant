@@ -10,6 +10,9 @@ independently check calculations and the full text of research claims.
 * **Reader failures (fixed in 0.6.1).** A reply without an `"assertions"` list used to be read
   as "no claims" without any error. It is now reported, and `Review.read_ok` is `False`. When
   evaluating a reader, report the share of reviews with `read_ok` false.
+* **Bare difference claims.** "The groups differed" or "the population means differ", without
+  "significantly", is not judged; it is neither flagged nor confirmed (found in an outside
+  benchmark, 0.6.1).
 * **Language-model reader not evaluated.** `res.review()` has been tested only with scripted
   fake models and in small outside benchmarks. Its accuracy depends on the model and has not been measured against human
   labels; until it is, treat its readings as suggestions to check. It sends the sentence and
