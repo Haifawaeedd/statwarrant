@@ -176,6 +176,11 @@ def parse_json(text: str) -> dict:
 # Review
 # --------------------------------------------------------------------------- #
 
+_NO_ASSERTIONS = "the language model's reply had no \"assertions\" list"
+_NOT_USED = "the language model could not be used"
+_READ_FAILURES = (_NO_ASSERTIONS, _NOT_USED)
+
+
 @dataclass
 class Review:
     """A sentence read by a language model and judged by statwarrant. Never an approval."""
@@ -191,6 +196,15 @@ class Review:
     model: Optional[str] = None
 
     @property
+    def read_ok(self) -> bool:
+        """True when the model's reply could be read as claims (an "assertions" list, possibly empty).
+
+        False when the model could not be used or returned no "assertions" list; the review then
+        rests on the rule-based check alone, and ``errors`` says why. Report this rate whenever
+        a language-model reader is evaluated."""
+        return not any(e.startswith(_READ_FAILURES) for e in self.errors)
+
+    @property
     def level(self) -> str:
         """"conflict", "to_verify" or "no_warnings" (not a clearance)."""
         if _has_problem(self.rules, self.verdicts):
@@ -204,6 +218,7 @@ class Review:
         return {
             "sentence": self.sentence,
             "level": self.level,
+            "read_ok": self.read_ok,
             "model": self.model,
             "rules": self.rules.to_dict(),
             "assertions": [v.to_dict() for v in self.verdicts],
@@ -254,14 +269,21 @@ def _read(res, sentence: str, llm: LLM) -> Tuple[List[Verdict], List[dict], List
     except Exception as exc:  # any provider error: fall back to the rules alone
         return [], [], [f"the language model could not be used ({type(exc).__name__}: {exc}); "
                         f"only the rule-based check ran"]
+    if not isinstance(data, dict) or not isinstance(data.get("assertions"), list):
+        return [], [], ["the language model's reply had no \"assertions\" list, so no claims were read and "
+                        "only the rule-based check ran"]
     verdicts: List[Verdict] = []
-    for item in data.get("assertions") or []:
+    for item in data["assertions"]:
+        if not isinstance(item, dict):
+            errors.append(f"an assertion read by the model was not usable (not an object): {item!r}")
+            continue
         try:
             verdicts.append(res.verify(Assertion.from_dict(item)))
         except (TypeError, ValueError, KeyError) as exc:
             errors.append(f"an assertion read by the model was not usable ({exc}): {item!r}")
     meaning = []
-    for item in data.get("meaning") or []:
+    meaning_items = data.get("meaning")
+    for item in meaning_items if isinstance(meaning_items, list) else []:
         if isinstance(item, dict) and item.get("concern"):
             meaning.append({"quote": str(item.get("quote", "")), "concern": str(item["concern"])})
     return verdicts, meaning, errors
@@ -274,7 +296,7 @@ def review(res, sentence: str, llm: LLM, *, rewrite: bool = True, record: bool =
     rules = res.check(sentence, record=False)  # kept with the review itself, not twice in the report
     verdicts, meaning, errors = _read(res, sentence, llm)
     out = Review(sentence, rules, verdicts, meaning, errors=errors, model=getattr(llm, "model", None))
-    if rewrite and _has_problem(rules, verdicts) and not any("could not be used" in e for e in errors):
+    if rewrite and _has_problem(rules, verdicts) and out.read_ok:
         problems = [p.reason for p in rules.conflicts] + [v.reason for v in verdicts
                                                          if v.status in (CONTRADICTED, NOT_ESTABLISHED)]
         try:

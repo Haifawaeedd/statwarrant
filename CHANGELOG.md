@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.6.1
+
+* **Reader failures are reported.** In 0.6.0, when a language model's reply had no
+  `"assertions"` list (a wrong key, a non-list, or a non-object reply), `res.review()` silently
+  read no claims and reported no error, so the review rested on the rules alone without saying
+  so. Found in an outside benchmark with a local Qwen model. Such replies now add an error, and
+  the new `Review.read_ok` (also in `to_dict()`) is `False` for them and for provider errors.
+  No rewrite is attempted after a failed reading. Items in the list that are not objects are
+  reported and skipped. Regression tests: `tests/test_reader_errors_061.py`.
+
 ## 0.6.0
 
 New, all optional; existing results and fingerprints are unchanged. This release also
