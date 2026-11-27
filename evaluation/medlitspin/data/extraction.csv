@@ -1,0 +1,31 @@
+pmid,outcome,comparator,kind,value,lo,hi,p,direction,note
+9093724,survival,comparator B,p,,,,0.54,A,median 18 vs 17 months
+10547391,occurrence of contralateral breast cancer,the control arm,hr,0.92,0.66,1.29,0.642,,events
+11261827,response rate,comparator B,counts,68/106,58/111,,,A,response 64% vs 52%; no p reported
+10637238,survival,chemotherapy alone,p,,,,0.834,C,median 30.0 control vs 29.3 A
+12177098,time to progression,comparator B,hr,0.92,0.74,1.14,0.43,,
+15947110,overall response rate,epirubicin alone,counts,87/106,80/105,,,A,82% vs 76%; counts rounded from %
+16148021,disease-free survival,group B,p,,,,0.55,A,3-year DFS 80% vs 77%
+16314619,survival,the control arm,p,,,,0.16,A,MST 5.4 vs 4.4; HR 0.87 without CI
+16504757,disease-free survival,comparator B,p,,,,0.22,A,5-year DFS 83% vs 79%
+17134892,survival,no further treatment,hr,0.97,0.79,1.18,0.7377,,
+17173959,true positive rate,colposcopy alone,p,,,,0.143,A,21.8% vs 19.9%
+17179098,overall response rate,CAF + placebo,p,,,,0.077,A,53.1% vs 42.6%
+17264336,disease-free survival,comparator B,p,,,,0.83,A,5-year DFS 80% in both; direction not reported (sign set to A)
+17530429,relapse,no treatment,hr,0.75,0.50,1.13,0.17,,cumulative incidence of relapse
+18794551,progression-free survival,comparator B,hr,0.84,0.67,1.05,0.121,,
+18955454,time to progression,placebo + paclitaxel,hr,0.87,0.72,1.05,0.142,,
+19273714,progression-free survival,comparator B,p,,,,0.121,A,median 8.05 vs 7.98
+20087643,abstinence,placebo,or,1.36,0.38,4.81,0.64,,
+20153039,overall survival,comparator B,hr,1.05,0.90,1.21,0.55,,
+20448107,overall survival,placebo,p,,,,0.35,C,median 29 A vs 32 placebo
+20530276,overall survival,comparator B,hr,0.90,0.78,1.03,0.1162,,
+20564068,cancer-related fatigue,placebo,p,,,,0.08,A,worst fatigue 6.87 A vs 7.09 placebo; lower is better
+20673585,complete response,the control arm,p,,,,0.72,C,62.5% A vs 64.6% control
+20800381,radiation dermatitis,placebo,p,,,,0.18,A,mean grade 1.2 A vs 1.3 placebo; lower is better
+20973267,progression-free survival,PLD alone,p,,,,0.7243,A,median 5.6 vs 3.7; HR 0.92 without CI
+21041710,time to functional deterioration,observation,hr,0.96,0.76,1.20,0.71,,time to WHO PS > 2
+21060024,survival,surgery alone,hr,0.84,0.52,1.35,0.466,,
+21399726,sleep quality,placebo,p,,,,0.7,C,PSQI AUC 51.4 A vs 49.7 placebo; higher PSQI is worse
+21471562,distress,usual care,p,,,,0.33,A,HADS 9.9 A vs 10.9 routine care at T2; lower is better
+22112969,overall survival,placebo,hr,1.07,0.72,1.55,0.63,,

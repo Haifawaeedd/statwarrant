@@ -166,8 +166,9 @@ Power at true effect = d + 2.5 SE
 ```
 
 Under `"split"` the size is about 0.025 once the bounds are wider than about one standard error.
-Under `"relevance"` it stays within Monte Carlo error of 0.05 (largest observed 0.0504) and is
-somewhat below 0.05 for very small samples (n = 5), and power is 7 to 13 points higher.
+Under `"relevance"` it never exceeded 0.0504; across the grid it ranged from 0.045 to 0.050, below
+the nominal level for small samples (0.045 to 0.049 at n = 5, several Monte Carlo standard errors below
+0.05). Power is 7 to 14 points higher, a gain that partly reflects the split method's lower actual size.
 
 ### Structured assertions, language-model reader, MCP server
 
@@ -190,3 +191,11 @@ somewhat below 0.05 for very small samples (n = 5), and power is 7 to 13 points 
 * Whether a written claim matches what the measure means (for example "reasoning" for answer
   correctness). Rules cannot judge this; an optional reader layer is planned for 0.6.0
   (see [ROADMAP.md](ROADMAP.md)).
+
+## Exploratory benchmark on real trial abstracts (MedLitSpin)
+
+60 abstracts of 30 cancer trials (Yun et al., CHIL 2025), with spin labels set by others, checked with
+0.6.0 and compared with 22 published and new language-model runs. Notebook, data, prompts and every model
+answer: [evaluation/medlitspin/](evaluation/medlitspin/). The rules flagged 19 of 30 spun and 2 of 30
+neutral abstracts; 8 of the 19 flags concerned the primary result. A one-phrase rule separates the
+classes perfectly, so the benchmark cannot show which methods used the numbers.

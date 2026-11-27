@@ -1,0 +1,31 @@
+pmid,outcome,comparator,effect,p,favours,evidence
+9093724,overall survival,comparator B,none,0.54,A,median survival 18 vs 17 months (A vs B); P = 0.54
+10547391,contralateral breast cancer incidence (first of the combined primary),no treatment (control),HR 0.92 (0.66-1.29),0.642,A,HR = 0.92; 95% CI = 0.66-1.29; P = .642
+10637238,median survival (first reported; no primary named),chemotherapy alone,none,0.834,comparator,"30.0 months chemo alone vs 29.3 months A+chemo, p=0.834"
+11261827,response rate (first listed main end point),comparator B,none,none,A,64% (68/106) A vs 52% (58/111) B; only 'not statistically different' stated
+12177098,time to progression,comparator B,HR 0.92 (0.74-1.14),0.43,A,HR 0.92; 95% CI 0.74 to 1.14; P=.43; median TTP 5.4 vs 3.4 months
+15947110,overall response rate,epirubicin alone (EPI),none,none,A,76 vs 82% in EPI and EPI+A arms; no p reported
+16148021,disease-free survival,group B (epirubicin then CMF without A),none,0.55,A,log-rank P = 0.55; 3-year DFS 80% group A vs 77% group B
+16314619,survival,no treatment (control),none,0.16,A,MST 5.4 vs 4.4 months; HR = 0.87 (no CI); P = .16
+16504757,disease-free survival,comparator B,none,0.22,A,"5-year DFS 83% Arm A vs 79% Arm B, p = 0.22"
+17134892,5-year survival,no further treatment,HR 0.97 (0.79-1.18),0.7377,A,"HR 0.97; 95% CI, 0.79-1.18; p = 0.7377"
+17173959,"true-positive rate (CIN2,3+; first of two main outcomes)",colposcopy alone,none,0.143,A,19.9% (218/1096) colposcopy-only vs 21.8% (238/1090) with A; p=0.143
+17179098,overall response rate,CAF + placebo,none,0.077,A,ORR 42.6% placebo+CAF vs 53.1% A+CAF (P = .077)
+17264336,5-year disease-free survival,comparator B,none,0.83,equal,5-year DFS 80% in both groups; P = .83
+17530429,cumulative incidence of relapse (first reported; no primary named),no treatment,HR 0.75 (0.50-1.13),0.17,A,HR = 0.75 [0.50-1.13]; p= 0.17
+18794551,progression-free survival,comparator B,HR 0.84 (0.67-1.05),0.121,A,"median PFS 9.9 (A) vs 5.8 months (B), HR = 0.84 (95% CI, 0.67 to 1.05), p = .121"
+18955454,time to progression,placebo + paclitaxel,HR 0.87 (0.72-1.05),0.142,A,"TTP 29 v 22.9 weeks, HR = 0.87; 95% CI, 0.72 to 1.05; p = .142"
+19273714,progression-free survival,comparator B,none,0.121,A,median PFS 8.05 (A) vs 7.98 months (B) (log-rank P = .121)
+20087643,7-day point-prevalence abstinence (week 12 and week 27),placebo,OR 1.36 (0.38-4.81),0.64,A,"OR = 1.36, 95% CI: 0.38-4.81, p =0.64; week 12 abstinence 27.2% A vs 24.2% placebo"
+20153039,overall survival,comparator B,HR 1.05 (0.90-1.21),0.55,comparator,"HR 1.05 [95% CI 0.90-1.21], p=0.55; median 18.8 (B) vs 18.6 months (A)"
+20448107,overall survival,placebo,none,0.35,comparator,median survival 29 months (A) vs 32 months (placebo); p=0.35
+20530276,overall survival,comparator B,HR 0.9 (078-1.03) [CI lower bound as written; likely 0.78],0.1162,A,"median 16.4 v 15.6 months; HR = 0.9; 95% CI, 078 to 1.03; P = .1162"
+20564068,worst cancer-related fatigue at Cycle 4,placebo,none,0.08,A,mean (SE) 6.87 (0.14) A vs 7.09 (0.13) placebo; p = 0.08 (lower = less fatigue)
+20673585,complete response to induction (first of two primary outcomes),cytarabine + idarubicin alone (control),none,0.72,comparator,62.5% A arm vs 64.6% control; p=0.72
+20800381,maximum grade of radiation dermatitis (provider assessed),placebo cream,none,0.18,A,mean max grade 1.2+/-0.85 A vs 1.3+/-0.80 placebo; p = .18
+20973267,progression-free survival,PLD alone,HR 0.92 (CI not reported),0.7243,A,median PFS 5.6 vs 3.7 months; hazards ratio 0.92; P = 0.7243
+21041710,time to WHO PS deterioration to >2,observation (OBS),HR 0.96 (0.76-1.20),0.71,A,"HR 0.96; 95% CI 0.76-1.20; P = .71 (but medians 9.5 A vs 10.0 months OBS, discordant)"
+21060024,overall survival,surgery alone,HR 0.84 (0.52-1.35),0.466,A,"hazard ratio 0.84; 95% CI, 0.52 to 1.35; P = .466; median 64.6 vs 52.5 months"
+21399726,PSQI area under the curve over 8 weeks,placebo,none,0.7,comparator,"AUC 51.4 (SD 16) A vs 49.7 (SD 15) placebo, P=0.7 (higher PSQI = worse sleep)"
+21471562,psychological distress (HADS) at T2 and T3,routine (usual) care,none,0.33,A,"T2 HADS 10.9 (6.8) routine vs 9.9 (5.8) A, p=0.33; T3 10.4 vs 9.0, p=0.15"
+22112969,overall survival,placebo + docetaxel-prednisone,HR 1.07 (0.72-1.55),0.63,comparator,"HR 1.07, 95% CI 0.72-1.55, P=0.63 (but median OS 18.1 A vs 17.8 months placebo, discordant)"

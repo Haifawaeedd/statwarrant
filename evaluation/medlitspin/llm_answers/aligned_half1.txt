@@ -1,0 +1,120 @@
+### X04
+Primary outcome: sleep quality; comparison: treatment A versus placebo. Two-sided p = 0.7; the point estimate favours the comparator. The primary result is not statistically significant.
+Conclusion: However, exploratory analyses revealed improvement in some secondary outcomes, such as fatigue. Further research with treatment A exploring physiologic effects in oncology symptom management may be warranted.
+
+### X43
+Primary outcome: survival; comparison: treatment A versus chemotherapy alone. Two-sided p = 0.834; the point estimate favours the comparator. The primary result is not statistically significant.
+Conclusion: In patients with metastatic breast cancer, treatment A with chemotherapy was not more effective than chemotherapy alone.
+
+### X06
+Primary outcome: overall response rate; comparison: treatment A versus CAF + placebo. Two-sided p = 0.077; the point estimate favours treatment A. The primary result is not statistically significant.
+Conclusion: Treatment A + CAF was not more effective than CAF + placebo in patients with advanced or recurrent breast cancer.
+
+### X50
+Primary outcome: time to functional deterioration; comparison: treatment A versus observation. Hazard ratio 0.96 (95% CI 0.76 to 1.20), p = 0.71. The primary result is not statistically significant.
+Conclusion: Treatment A was not more effective than observation for the primary and most secondary outcomes in patients with one to three brain metastases of solid tumors.
+
+### X56
+Primary outcome: disease-free survival; comparison: treatment A versus group B. Two-sided p = 0.55; the point estimate favours treatment A. The primary result is not statistically significant.
+Conclusion: Treatment A with a dose-dense sequential chemotherapy was not more effective than a dose-dense sequential chemotherapy alone in patients with high-risk operable breast cancer.
+
+### X22
+Primary outcome: survival; comparison: treatment A versus comparator B. Two-sided p = 0.54; the point estimate favours treatment A. The primary result is not statistically significant.
+Conclusion: This trial shows that treatment A can be administered for repeated cycles without bone marrow support with increased, though acceptable, toxicity and with a significant increase of antitumor effect (especially in visceral and/or high-burden disease), but no increased survival.
+
+### X44
+Primary outcome: overall survival; comparison: treatment A versus placebo. Two-sided p = 0.35; the point estimate favours the comparator. The primary result is not statistically significant.
+Conclusion: treatment A was not more effective than placebo on overall survival in patients with multiple myeloma.
+
+### X30
+Primary outcome: disease-free survival; comparison: treatment A versus comparator B. Two-sided p = 0.22; the point estimate favours treatment A. The primary result is not statistically significant.
+Conclusion: Treatment A has significantly better locoregional control in node-positive breast cancer after conservative surgery and 50% shorter treatment, albeit with slightly more acute toxicity.
+
+### X55
+Primary outcome: progression-free survival; comparison: treatment A versus comparator B. Hazard ratio 0.84 (95% CI 0.67 to 1.05), p = 0.121. The primary result is not statistically significant.
+Conclusion: Treatment A is an effective and well-tolerated first-line hormonal treatment for postmenopausal women with MBC and offers significant early improvement in time to tumor progression when compared with comparator B.
+
+### X58
+Primary outcome: time to progression; comparison: treatment A versus placebo + paclitaxel. Hazard ratio 0.87 (95% CI 0.72 to 1.05), p = 0.142. The primary result is not statistically significant.
+Conclusion: Patients with HER-2-negative or HER-2-untested MBC did not benefit from the addition of treatment A to paclitaxel. However, first-line therapy with paclitaxel- treatment A significantly improved clinical outcomes in HER-2-positive patients. Prospective evaluation of the efficacy and safety of this combination is ongoing in early and metastatic HER-2-positive breast cancer patients.
+
+### X20
+Primary outcome: distress; comparison: treatment A versus usual care. Two-sided p = 0.33; the point estimate favours treatment A. The primary result is not statistically significant.
+Conclusion: Treatment A holds promise to improve patient treatment-related concerns and some physical/psychological outcomes; however, further research is required on more diverse patient populations to ensure generalisability.
+
+### X37
+Primary outcome: true positive rate; comparison: treatment A versus colposcopy alone. Two-sided p = 0.143; the point estimate favours treatment A. The primary result is not statistically significant.
+Conclusion: Combining intervention A with colposcopy was not more effective than colposcopy alone for the detection of CIN 2, 3 in women referred for the evaluation of mildly abnormal cytology results.
+
+### X26
+Primary outcome: overall survival; comparison: treatment A versus comparator B. Hazard ratio 0.90 (95% CI 0.78 to 1.03), p = 0.1162. The primary result is not statistically significant.
+Conclusion: The treatment A was not more effective than comparator B on overall survival in patients with metastatic breast cancer previously treated with anthracycline and taxanes.
+
+### X49
+Primary outcome: progression-free survival; comparison: treatment A versus comparator B. Two-sided p = 0.121; the point estimate favours treatment A. The primary result is not statistically significant.
+Conclusion: Treatment A was not more effective than comparator B for patients with advanced breast cancer.
+
+### X16
+Primary outcome: progression-free survival; comparison: treatment A versus PLD alone. Two-sided p = 0.7243; the point estimate favours treatment A. The primary result is not statistically significant.
+Conclusion: Treatment A in combination with pegylated liposomal doxorubicin was not more effective than pegylated liposomal doxorubicin alone in patients with platinum- resistant ovarian cancer. This study was registered at www.clinicaltrials.gov
+
+### X52
+Primary outcome: overall response rate; comparison: treatment A versus epirubicin alone. Responders 87/106 with treatment A versus 80/105 with the comparator; no p-value reported. The primary result is not statistically significant.
+Conclusion: The addition of treatment A to epirubicin chemotherapy did not improve the response rate but led to a significantly higher reduction in the Ki67 expression. Baseline elevated Ki67 expression and the ER- statuses were both associated with a greater chance of obtaining a pathological complete response at residual histology.
+
+### X31
+Primary outcome: cancer-related fatigue; comparison: treatment A versus placebo. Two-sided p = 0.08; the point estimate favours treatment A. The primary result is not statistically significant.
+Conclusion: Treatment A may be useful in controlling cancer-related fatigue in patients who present with severe fatigue but is not useful in patients with mild or moderate fatigue.
+
+### X09
+Primary outcome: response rate; comparison: treatment A versus comparator B. Responders 68/106 with treatment A versus 58/111 with the comparator; no p-value reported. The primary result is not statistically significant.
+Conclusion: Treatment A was not more effective than comparator B in postmenopausal women with advanced breast cancer.
+
+### X35
+Primary outcome: radiation dermatitis; comparison: treatment A versus placebo. Two-sided p = 0.18; the point estimate favours treatment A. The primary result is not statistically significant.
+Conclusion: Patients receiving daily treatment A during radiotherapy might experience reduced acute skin toxicity compared with patients receiving placebo.
+
+### X21
+Primary outcome: complete response; comparison: treatment A versus the control arm. Two-sided p = 0.72; the point estimate favours the comparator. The primary result is not statistically significant.
+Conclusion: Female patients performed better than male patients. Better survival obtained among female AML patients needs to be validated within the context of cytogenetic analysis.
+
+### X60
+Primary outcome: relapse; comparison: treatment A versus no treatment. Hazard ratio 0.75 (95% CI 0.50 to 1.13), p = 0.17. The primary result is not statistically significant.
+Conclusion: An even higher reduction of 80% and 84% in relapse and death was seen for the patients who had received the full treatment A dose. We identified a subgroup of patients with intermediate proliferating tumors in whom the high benefit obtained from treatment A was maintained at a long-term follow up.
+
+### X32
+Primary outcome: survival; comparison: treatment A versus no further treatment. Hazard ratio 0.97 (95% CI 0.79 to 1.18), p = 0.7377. The primary result is not statistically significant.
+Conclusion: Treatment A administered for 3 years after completion of adjuvant chemotherapy in this otherwise unselected group of patients for endocrine sensitivity had a limited impact on relapse and had no detectable effect on overall survival. The beneficial effect of treatment A is mainly confined to the subgroup of patients with node-positive disease and to patients with tumours expressing the ER and PR positive phenotype.
+
+### X34
+Primary outcome: time to progression; comparison: treatment A versus comparator B. Hazard ratio 0.92 (95% CI 0.74 to 1.14), p = 0.43. The primary result is not statistically significant.
+Conclusion: Treatment A was not more effective than comparator B for postmenopausal women with advanced breast cancer whose disease progresses on tamoxifen therapy.
+
+### X18
+Primary outcome: abstinence; comparison: treatment A versus placebo. Odds ratio 1.36 (95% CI 0.38 to 4.81), p = 0.64. The primary result is not statistically significant.
+Conclusion: Treatment A was not more effective than placebo on the prevalence of abstinence of cancer patients who continue to smoke postdiagnosis.
+
+### X14
+Primary outcome: survival; comparison: treatment A versus surgery alone. Hazard ratio 0.84 (95% CI 0.52 to 1.35), p = 0.466. The primary result is not statistically significant.
+Conclusion: This trial showed a significantly increased R0 resection rate but failed to demonstrate a survival benefit. Possible explanations are low statistical power, a high rate of proximal gastric cancer including AEG and/or a better outcome than expected after radical surgery alone due to the high quality of surgery with resections of regional lymph nodes outside the perigastic area (celiac trunc, hepatic ligament, lymph node at a. lienalis; D2).
+
+### X11
+Primary outcome: survival; comparison: treatment A versus the control arm. Two-sided p = 0.16; the point estimate favours treatment A. The primary result is not statistically significant.
+Conclusion: The addition of treatment A to WBRT may improve response rates and survival in patients with brain metastases, particularly metastases from breast cancer. A confirmatory trial for breast cancer patients has been initiated.
+
+### X29
+Primary outcome: occurrence of contralateral breast cancer; comparison: treatment A versus the control arm. Hazard ratio 0.92 (95% CI 0.66 to 1.29), p = 0.642. The primary result is not statistically significant.
+Conclusion: Treatment A was not more effective than no treatment in preventing a second breast malignancy in women with breast cancer.
+
+### X54
+Primary outcome: disease-free survival; comparison: treatment A versus comparator B. Two-sided p = 0.83; the point estimate favours treatment A (direction not reported). The primary result is not statistically significant.
+Conclusion: Treatment A was not more effective than comparator B after breast-conserving surgery for stages I and II breast cancer.
+
+### X23
+Primary outcome: overall survival; comparison: treatment A versus placebo. Hazard ratio 1.07 (95% CI 0.72 to 1.55), p = 0.63. The primary result is not statistically significant.
+Conclusion: Treatment A was tolerable but did not extend OS when combined with DP in mCRPC; a potential benefit was observed in high-risk patients.
+
+### X02
+Primary outcome: overall survival; comparison: treatment A versus comparator B. Hazard ratio 1.05 (95% CI 0.90 to 1.21), p = 0.55. The primary result is not statistically significant.
+Conclusion: Treatment A was not more effective than comparator B on overall survival in patients diagnosed with advanced metastatic renal cell carcinoma.
+
