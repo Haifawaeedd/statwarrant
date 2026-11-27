@@ -1,0 +1,22 @@
+pmid,version,conflict_about,linked_to_primary,note
+9093724,spin,"significant increase of antitumor effect",no,response rate (secondary)
+11261827,spin,"efficient and well-tolerated agent",yes,overall efficacy of treatment A
+12177098,spin,"at least as effective ... slightly favoring",yes,overall efficacy (primary TTP)
+15947110,spin,"significantly higher reduction in Ki67",no,Ki67 (secondary)
+16314619,spin,"may improve response rates and survival",yes,survival is the primary outcome
+16504757,spin,"significantly better locoregional control",no,local control (secondary)
+17134892,spin,"had no detectable effect on overall survival",yes,primary; an over-claim of no effect
+17173959,spin,"clinically meaningful increase in the detection of CIN 2,3",yes,primary (detection rate)
+18794551,spin,"effective ... significant early improvement in time to tumor progression",yes,primary (PFS)
+18955454,spin,"significantly improved clinical outcomes in HER-2-positive patients",no,subgroup
+19273714,spin,"No difference was observed ... in PFS, ORR, and OS",yes,primary; an over-claim of no effect
+20087643,spin,"For patients with depression symptoms, treatment increases abstinence rates",no,subgroup
+20448107,spin,"significant antimyeloma effect",no,response (secondary)
+20800381,spin,"might experience reduced acute skin toxicity",yes,primary (radiation dermatitis)
+20973267,spin,"significantly longer for treatment A + PLD in platinum-refractory",no,subgroup
+21060024,spin,"significantly increased R0 resection rate",no,R0 resection (secondary)
+21399726,spin,"improvement in some secondary outcomes, such as fatigue",no,secondary outcomes
+21471562,spin,"holds promise to improve patient treatment-related concerns and some physical/psychological outcomes",no,mostly secondary outcomes; ambiguous
+22112969,spin,"a potential benefit was observed in high-risk patients",no,subgroup
+20673585,no_spin,"p-value of a secondary outcome (3-year OS p=0.38 sentence)",no,pulled in by the last-two-sentences rule
+21399726,no_spin,"p-values of secondary fatigue scales",no,pulled in by the last-two-sentences rule

@@ -22,8 +22,9 @@ independently check calculations and the full text of research claims.
   statwarrant cannot verify that reading. Each verdict records the quoted words so it can be
   checked.
 * **Relevance test with an estimated standard error.** The per-side level is chosen from the
-  observed standard error. Simulation (VALIDATION.md) found the size within Monte Carlo error of
-  alpha for n from 5 to 200 (largest 0.0504 at alpha 0.05); it is not an exact test with unknown variance.
+  observed standard error. Simulation (VALIDATION.md) found the size never above 0.0504 at
+  alpha 0.05 for n from 5 to 200, and below alpha for small samples (0.045 to 0.049 at n = 5); it is not
+  an exact test with unknown variance.
 * **SciPy variants.** A SciPy t-test result does not record trimming, Welch or pooling.
   statwarrant notes this and accepts `estimand=`, but cannot detect the variant itself.
 * **Public MCP servers.** Sentences sent to a hosted server leave your computer; run the
