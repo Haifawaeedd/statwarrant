@@ -1,6 +1,6 @@
 # How statwarrant is checked
 
-This page lists what has been checked, how, and what has not. Version 0.5.0.
+This page lists what has been checked, how, and what has not. Version 0.6.0; additions for 0.6.0 are marked.
 
 ## Statistics
 
@@ -22,7 +22,7 @@ and the decisions follow the published intervals. Of the 7 p-values printed in t
 not reproduced exactly. See the
 [published-paper experiment](https://github.com/Haifawaeedd/statwarrant/blob/main/KNOWN_ISSUES.md#sentences-from-published-papers).
 
-**Environments.** The test suite (about 1,070 tests, including property-based tests) passes
+**Environments.** The test suite (about 1,070 tests in 0.5.0; 1,945 in 0.6.0, including property-based tests) passes
 on Python 3.9, 3.10 with the oldest supported NumPy 1.22.4, SciPy 1.11.4 and statsmodels
 0.14.0, and 3.13 with NumPy 2.5 and SciPy 1.18, on Linux. Continuous integration is set up
 to run it on Python 3.9 to 3.13 and on macOS and Windows; check the badge on the README for
@@ -99,10 +99,92 @@ issue form from 0.5.2 on are scored with the released version before any rule is
 for them, and those scores are reported separately here. They are the first sentences the
 rules were not written for.
 
+## Additions in 0.6.0
+
+### Independent numerical check (Wolfram Language)
+
+Computed outside SciPy, in Wolfram Language, at 20 or more significant digits. statwarrant's values
+agree to about 15 significant digits:
+
+| Quantity | Wolfram | statwarrant |
+| --- | --- | --- |
+| README example (4.2, SE 1.6, df 58): `met_below` | 0.99725202536762222 | 0.99725202536762203 |
+| README example: `equivalence_above` | 7.4027479746323778 | 7.4027479746323781 |
+| README example: two-sided p of the zero test | 0.011059525082854976 | 0.011059525082854968 |
+| README example: one-sided p of the minimal-effect test (bounds ±3) | 0.22814317283878459 | 0.2281431728387846 |
+| Gelman & Carlin (true effect 2.8, SE 1): power | 0.79955687143565142 | 0.799556871435651 |
+| Gelman & Carlin: Type S | 1.21084262271779909e-6 | 1.2108426227178e-6 |
+| Gelman & Carlin: exaggeration ratio | 1.12521878178789223 | 1.12521878178789 |
+| Relevance test, normal, bounds ±0.5 SE: folded-normal critical value | 2.1814774423281538 | 2.181477442328155 |
+
+The last row is a regression test (`tests/test_relevance_060.py`).
+
+### Minimal-effect test: split versus relevance (simulation)
+
+`evaluation/simulations/relevance_size.py`: one-sample normal data with unknown variance, t
+reference, 1,000,000 replications per cell (Monte Carlo standard error about 0.0002 for a
+rejection rate of 0.05). The relevance test chooses its per-side level from the observed
+standard error, so its size is checked here rather than assumed.
+
+```
+Size at the bound (true effect = d), alpha = 0.05, 1000000 replications per cell
+| n | d / SE | split | relevance |
+| --- | --- | --- | --- |
+| 5 | 0.1 | 0.0417 | 0.0492 |
+| 5 | 0.3 | 0.0321 | 0.0473 |
+| 5 | 0.6 | 0.0265 | 0.0451 |
+| 5 | 1.0 | 0.0250 | 0.0464 |
+| 5 | 2.0 | 0.0249 | 0.0489 |
+| 10 | 0.1 | 0.0413 | 0.0499 |
+| 10 | 0.3 | 0.0311 | 0.0485 |
+| 10 | 0.6 | 0.0263 | 0.0477 |
+| 10 | 1.0 | 0.0248 | 0.0482 |
+| 10 | 2.0 | 0.0252 | 0.0502 |
+| 30 | 0.1 | 0.0406 | 0.0500 |
+| 30 | 0.3 | 0.0304 | 0.0494 |
+| 30 | 0.6 | 0.0260 | 0.0492 |
+| 30 | 1.0 | 0.0251 | 0.0497 |
+| 30 | 2.0 | 0.0251 | 0.0501 |
+| 200 | 0.1 | 0.0405 | 0.0499 |
+| 200 | 0.3 | 0.0302 | 0.0496 |
+| 200 | 0.6 | 0.0258 | 0.0504 |
+| 200 | 1.0 | 0.0248 | 0.0499 |
+| 200 | 2.0 | 0.0251 | 0.0497 |
+
+Power at true effect = d + 2.5 SE
+| n | d / SE | split | relevance |
+| --- | --- | --- | --- |
+| 10 | 0.3 | 0.6057 | 0.6809 |
+| 10 | 1.0 | 0.6060 | 0.7356 |
+| 10 | 2.0 | 0.6062 | 0.7449 |
+| 30 | 0.3 | 0.6762 | 0.7486 |
+| 30 | 1.0 | 0.6750 | 0.7847 |
+| 30 | 2.0 | 0.6767 | 0.7875 |
+| 200 | 0.3 | 0.7020 | 0.7720 |
+| 200 | 1.0 | 0.7018 | 0.8011 |
+| 200 | 2.0 | 0.7007 | 0.8008 |
+```
+
+Under `"split"` the size is about 0.025 once the bounds are wider than about one standard error.
+Under `"relevance"` it stays within Monte Carlo error of 0.05 (largest observed 0.0504) and is
+somewhat below 0.05 for very small samples (n = 5), and power is 7 to 13 points higher.
+
+### Structured assertions, language-model reader, MCP server
+
+* `Result.verify()` agrees with the claim contract on the five example results in
+  `tests/test_assertions_060.py`; what the contract blocks is never "supported".
+* The language-model reader is tested only with scripted fake models
+  (`tests/test_llm_060.py`): parsing, fallback on provider errors, re-checking of rewrites, and
+  that the model is not shown the result's numbers. **Its accuracy has not been measured.**
+* The MCP server is tested through the real protocol, in memory and over stdio
+  (`tests/test_mcp_server_060.py`), and was checked manually over Streamable HTTP.
+
 ## Not yet checked
 
 * Accuracy of the sentence checker on sentences labelled by independent researchers.
   A [human-review kit](evaluation/human-review/README.md) is ready.
+* Accuracy of the language-model reader (0.6.0), against the human labels and with models from
+  more than one provider.
 * Independent human review of the code. All reviews so far were done with AI systems.
 * Use by researchers other than the maintainer. That is what this trial is for.
 * Whether a written claim matches what the measure means (for example "reasoning" for answer

@@ -15,11 +15,16 @@ importance, and it can flag common misreadings in a sentence you are about to wr
 > and the sentence linter's accuracy has not been measured. Use it as an aid to careful
 > reporting, not as a validator, and check its output. Reports of wrong results are very welcome.
 
-> **0.5.3 — public trial.** Please try it on your own results and tell us where it is
+> **0.6.0 — public trial.** Please try it on your own results and tell us where it is
 > wrong. The sentence checker is pattern-based and partial: a **conflict** is an apparent
 > contradiction that can itself be mistaken; **not verified** lists some parts it could
 > not check. No warning is never an approval. Always check group order, outcome, contrast and the complete
 > sentence yourself. See [KNOWN_ISSUES.md](KNOWN_ISSUES.md).
+
+> **New in 0.6.0.** Structured claims (`res.verify`), an optional language-model reader
+> (`res.review`), an MCP server for Claude, ChatGPT and other assistants, the test for
+> relevant differences as a minimal-effect test, and an estimand field. The language-model
+> reader is **experimental**: its accuracy has not been measured; see [KNOWN_ISSUES.md](KNOWN_ISSUES.md).
 
 **Try it** in the [quick-start notebook on Colab](https://colab.research.google.com/github/Haifawaeedd/statwarrant/blob/main/examples/quickstart.ipynb)
 (nothing to install). **Found a sentence the checker judged wrongly?**
@@ -111,6 +116,10 @@ result. **Not verified** lists parts it recognised but could not check, for you 
 | Scope | The linter can warn about some generalizations; it does not verify the stated scope or catch every overgeneralization. |
 | Absolute and relative | With a `baseline`, both changes are reported side by side. A ratio (`ratio=True`) is reported as a relative change in the quantity compared by the ratio. A baseline is refused for a ratio and recognized log-scale units; free-text units do not guarantee scale detection. |
 | Common inputs | scipy t-test results, statsmodels fits, estimate + SE, a published interval, or paired item scores (e.g. two models on the same test questions, with cluster-robust SE). |
+| Structured claims (0.6) | `res.verify(Assertion(...))` judges one claim written as fields (kind, direction, size) with the same tests: supported, not established, contradicted or to verify. |
+| Language-model reader (0.6, optional) | `res.review(sentence, llm=...)`: any model lists the sentence's claims; statwarrant judges them. The model never decides and is not shown the numbers. |
+| AI assistants (0.6) | An MCP server (`statwarrant-mcp`) for Claude, ChatGPT, Cursor and other assistants. |
+| Relevance test (0.6) | `met_method="relevance"`: the minimal-effect test of Hodges and Lehmann (1954), with type I error exactly alpha and more power for wide bounds. |
 
 ## Install
 
@@ -118,9 +127,9 @@ result. **Not verified** lists parts it recognised but could not check, for you 
 pip install statwarrant
 ```
 
-Pin the version you used (for example `pip install statwarrant==0.5.3`), so your analysis
+Pin the version you used (for example `pip install statwarrant==0.6.0`), so your analysis
 can be reproduced. Requires Python 3.9+, NumPy 1.22+ and SciPy 1.11+. To install a tagged
-commit from GitHub instead: `pip install "git+https://github.com/Haifawaeedd/statwarrant@v0.5.3"`.
+commit from GitHub instead: `pip install "git+https://github.com/Haifawaeedd/statwarrant@v0.6.0"`.
 If an earlier development snapshot is installed, add `--force-reinstall` so it is not
 reused silently.
 
@@ -313,6 +322,90 @@ inputs are summaries, not the original objects or raw data. The JSON carries a s
 version (`statwarrant-result/2`). Name a result with `analyze(..., label="H1")`.
 Extreme finite inputs can overflow and prevent JSON export; see known issues.
 
+### What was estimated
+
+```python
+res = plan.analyze(stats.ttest_ind(a, b, trim=0.2), estimand="difference in 20% trimmed means")
+```
+
+A SciPy t-test result does not record whether it was trimmed (Yuen's test), Welch's or
+pooled, so statwarrant cannot tell a difference of trimmed means from a difference of
+means. `estimand=` puts your description in the report; without it, SciPy results get a
+note saying so.
+
+### Minimal-effect test: split or relevance
+
+```python
+sw.declare(..., met_method="split")       # default: the 95% interval beyond a bound
+sw.declare(..., met_method="relevance")   # Hodges & Lehmann (1954): type I error exactly alpha
+```
+
+Under `"split"` the largest type I error of the minimal-effect test is close to alpha / 2
+once the bounds are wider than about one standard error (2.5% at alpha = 0.05). The test
+for relevant differences chooses its per-side level a from the width of the bounds, so that
+the largest type I error is exactly alpha: a is alpha / 2 for bounds near zero and tends to
+alpha for wide bounds. With the README example's numbers and an effect of 6, power rises
+from 45% to 58%. Its decisions are read from a (1 - 2a) interval, which the report shows.
+The choice is part of the plan fingerprint (when not the default), so declare it before
+analysis. See VALIDATION.md for the size check by simulation.
+
+### Structured claims
+
+```python
+from statwarrant import Assertion
+
+res.verify(Assertion(kind="no_effect"))                               # contradicted
+res.verify(Assertion(kind="nonzero", direction="positive"))           # supported
+res.verify(Assertion(kind="at_least", value=3, direction="positive")) # not_established
+```
+
+Kinds: `nonzero`, `no_effect`, `equivalent`, `important`, `at_least`, `at_most`, `about`,
+`causal`, `generalization`. Directions refer to the declared contrast ("positive": its first
+term is larger). A verdict concerns the statistical proposition only, never the wording of a
+sentence. Denials and hedges (`polarity="denied"` or `"hedged"`) are never cleared.
+
+### Reading sentences with a language model (experimental, optional)
+
+```python
+from statwarrant.llm import AnthropicLLM, OpenAILLM, CallableLLM
+
+llm = AnthropicLLM(model="...")                           # pip install "statwarrant[anthropic]"
+llm = OpenAILLM(model="...")                              # pip install "statwarrant[openai]"
+llm = OpenAILLM(model="...", base_url="http://localhost:11434/v1", api_key="local")  # a local model
+review = res.review("The new method had no effect on scores.", llm=llm)
+print(review)
+```
+
+The model reads the sentence and the plan's descriptions (outcome, contrast, units, scope,
+design), never the result's numbers, and lists the claims it makes as structured assertions,
+plus what numbers cannot check (a construct such as "reasoning" when the outcome is answer
+accuracy, another population). statwarrant judges every assertion and also runs the
+rule-based checker. When something conflicts, the model may propose a rewrite from the
+allowed statements; the rewrite is checked again and offered only if nothing in it
+conflicts. If the model fails, the rule-based check still runs. The sentence and the
+descriptions are sent to the model's provider: use a local model for confidential text. The
+accuracy of this layer has not been measured.
+
+### Use from Claude, ChatGPT and other assistants (MCP)
+
+```bash
+pip install "statwarrant[mcp]"     # Python 3.10+
+statwarrant-mcp                    # stdio, for Claude Desktop, Claude Code, Cursor, VS Code ...
+statwarrant-mcp --http --port 8000 # Streamable HTTP at http://127.0.0.1:8000/mcp
+```
+
+For Claude Desktop, add to its configuration:
+
+```json
+{"mcpServers": {"statwarrant": {"command": "statwarrant-mcp"}}}
+```
+
+For Claude Code: `claude mcp add statwarrant -- statwarrant-mcp`. Clients that only connect
+to remote servers over HTTPS (ChatGPT, claude.ai) need the server hosted; the
+[Hugging Face Space recipe](deploy/huggingface-space/) does that. The assistant reads the
+sentence itself and calls `verify_assertions`; statwarrant judges. No API key is involved.
+Tools: `analyze_result`, `verify_assertions`, `check_sentences`, all read-only.
+
 ## What it does not do
 
 * It does not check that your data or model are right; it interprets the estimate it is given.
@@ -382,10 +475,13 @@ See [CITATION.cff](CITATION.cff). Please also cite the methods you rely on (belo
 * Schuirmann, D. J. (1987). A comparison of the two one-sided tests procedure and the power approach for assessing the equivalence of average bioavailability. *Journal of Pharmacokinetics and Biopharmaceutics*, 15, 657–680.
 * Lakens, D., Scheel, A. M., & Isager, P. M. (2018). Equivalence testing for psychological research: A tutorial. *Advances in Methods and Practices in Psychological Science*, 1(2), 259–269.
 * Gelman, A., & Carlin, J. (2014). Beyond power calculations: Assessing Type S (sign) and Type M (magnitude) errors. *Perspectives on Psychological Science*, 9(6), 641–651.
+* Hodges, J. L., & Lehmann, E. L. (1954). Testing the approximate validity of statistical hypotheses. *Journal of the Royal Statistical Society: Series B*, 16(2), 261–268.
 * Lu, J., Qiu, Y., & Deng, A. (2018). A note on Type S/M errors in hypothesis testing. *British Journal of Mathematical and Statistical Psychology*.
 * Miller, E. (2024). Adding error bars to evals: A statistical approach to language model evaluations. arXiv:2411.00640.
 * Murphy, S. L., Merz, R., Reimann, L.-E., & Fernández, A. (2025). Nonsignificance misinterpreted as an effect's absence in psychology. *Royal Society Open Science*, 12, 242167.
 * Peters, U., & Chin-Yee, B. (2025). Generalization bias in large language model summarization of scientific research. *Royal Society Open Science*, 12, 241776.
+
+* Wellek, S. (2010). *Testing Statistical Hypotheses of Equivalence and Noninferiority* (2nd ed.). Chapman & Hall/CRC.
 
 ## License
 

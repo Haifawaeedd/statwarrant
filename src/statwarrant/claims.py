@@ -260,11 +260,24 @@ class Context:
     def bound_u(self, x: float) -> str:
         return f"{fmt_bound(x)} {self.units}" if self.units else fmt_bound(x)
 
+    def met_interval_extra(self) -> Optional[Tuple[float, Tuple[float, float]]]:
+        """The relevance test's interval, when it differs from the zero and equivalence intervals."""
+        ev = self.evidence
+        if (ev.met_method == "relevance" and ev.met_interval is not None and ev.met_level != ev.zero_level
+                and ev.met_level != ev.equivalence_level):
+            return ev.met_level, ev.met_interval
+        return None
+
     def ci_text(self, which: str = "zero") -> str:
         ev = self.evidence
         if which == "equivalence" and ev.equivalence_interval is not None:
             lo, hi = ev.equivalence_interval
             level = ev.equivalence_level
+        elif which == "met" and ev.met_interval is not None:
+            # The interval the minimal-effect decision is read from: the (1 - alpha) interval
+            # under "split"; under "relevance", the (1 - 2a) interval of the relevance test.
+            lo, hi = ev.met_interval
+            level = ev.met_level
         else:
             lo, hi = ev.zero_interval
             level = ev.zero_level
@@ -441,7 +454,7 @@ _WORD_PATTERNS = [
                        r"any (?:student|user|patient|person|participant|setting|context|population))\b"),
     # "cause-specific mortality", "all-cause death", "causes of death" name outcomes, not causation
     ("_skip", r"\b(?:all[- ])?causes?[- ]specific\b|\ball[- ]cause\b|\bcauses? of (?:death|mortality|admission)\b"),
-    ("causal", r"\b(?:caus(?:e|es|ed|ing|al|ally)|led to|leads to|lead to|due to|because of|result(?:s|ed)? in|"
+    ("causal", r"\b(?:caus(?:e|es|ed|ing|al|ally|ality|ation)|led to|leads to|lead to|due to|because of|result(?:s|ed)? in|"
                r"attributable to|driven by|responsible for)\b"),
     ("nonzero", r"\b(?:differs?|differed|different) from zero\b|\bnon-?zero\b|\bdetectable\b"),
     ("importance", r"\b(?:meaningful(?:ly)?|important|practically (?:significant|relevant|important)|"
@@ -771,6 +784,12 @@ def _known(ctx: Context) -> List[Tuple[str, float]]:
                   ("interval level", ev.equivalence_level * 100)]
         k += [("p-value of the equivalence test", ev.p_equivalence),
               ("p-value of the minimal-effect test", ev.p_minimal_effect)]
+        extra = ctx.met_interval_extra()
+        if extra is not None:
+            mlevel, (mlo, mhi) = extra
+            k += [(f"lower end of the {level_text(mlevel)} interval", mlo),
+                  (f"upper end of the {level_text(mlevel)} interval", mhi),
+                  ("interval level", mlevel * 100)]
     if ctx.baseline is not None:
         b = ctx.baseline
         k += [("baseline", b), ("baseline plus the estimate", b + ev.estimate),
@@ -1229,7 +1248,7 @@ def _judge_hit(h: _Hit, ctx: Context, sign: Optional[int]) -> Tuple[str, str]:
             return CONFLICT, "No smallest effect size of interest was declared, so 'small' or 'negligible' cannot be assessed."
         low, high = ev.sesoi
         if ev.exceeds_sesoi:
-            return CONFLICT, f"The effect exceeds the smallest effect size of interest ({z})."
+            return CONFLICT, f"The effect exceeds the smallest effect size of interest ({ctx.ci_text('met')})."
         if ev.equivalent:
             return CONSISTENT, f"The equivalence test establishes an effect within {fmt_bounds(low, high)} ({ctx.ci_text('equivalence')})."
         return CONFLICT, (f"Equivalence within the smallest effect size of interest {fmt_bounds(low, high)} "
@@ -1248,10 +1267,10 @@ def _judge_hit(h: _Hit, ctx: Context, sign: Optional[int]) -> Tuple[str, str]:
         low, high = ev.sesoi
         if not ev.exceeds_sesoi:
             return CONFLICT, (f"The minimal-effect test does not establish an effect beyond the smallest effect "
-                              f"size of interest ({fmt_bounds(low, high)}; {z}).")
+                              f"size of interest ({fmt_bounds(low, high)}; {ctx.ci_text('met')}).")
         if sign in (1, -1) and sign != ev.direction:
             return CONFLICT, "The effect exceeds the smallest effect size of interest, but in the opposite direction to the one stated."
-        return CONSISTENT, f"The whole {z} lies beyond the smallest effect size of interest."
+        return CONSISTENT, f"The whole {ctx.ci_text('met')} lies beyond the smallest effect size of interest."
 
     if cat == "significance":
         if not ev.differs_from_zero:
@@ -1527,7 +1546,7 @@ def _judge_neither(h: _Hit, ctx: Context) -> Tuple[str, str]:
                 established.append(f"equivalence is established ({e})")
         elif kind == "importance":
             if ev.exceeds_sesoi:
-                established.append(f"the effect exceeds the smallest effect size of interest ({z})")
+                established.append(f"the effect exceeds the smallest effect size of interest ({ctx.ci_text('met')})")
         elif kind == "direction":
             directions.append(_sign_of(item, ctx.better))
         elif ev.differs_from_zero:
@@ -1559,14 +1578,15 @@ def _judge_named_test(cat: str, named: str, ctx: Context) -> Tuple[str, str]:
     if named == "equivalence":
         decided, q, thr, iv = ev.equivalent, ev.p_equivalence, ev.equivalence_threshold, ctx.ci_text("equivalence")
     else:
-        decided, q, thr, iv = ev.exceeds_sesoi, ev.p_minimal_effect, ev.met_threshold, ctx.ci_text()
+        decided, q, thr, iv = ev.exceeds_sesoi, ev.p_minimal_effect, ev.met_threshold, ctx.ci_text("met")
+    against = ("alpha" if named != "equivalence" and ev.met_method == "relevance" else "a per-side threshold of")
     says_significant = cat == "significance"
     if cat == "marginal":
-        return CHECK, f"The {named} test gives p = {fmt_p(q, 4)} against a per-side threshold of {fmt(thr)} ({iv})."
+        return CHECK, f"The {named} test gives p = {fmt_p(q, 4)} against {against} {fmt(thr)} ({iv})."
     if says_significant == decided:
-        return CONSISTENT, f"The {named} test gives p = {fmt_p(q, 4)} against a per-side threshold of {fmt(thr)} ({iv})."
+        return CONSISTENT, f"The {named} test gives p = {fmt_p(q, 4)} against {against} {fmt(thr)} ({iv})."
     return CONFLICT, (f"The {named} test {'does not reject' if says_significant else 'rejects'}: p = {fmt_p(q, 4)} against "
-                      f"a per-side threshold of {fmt(thr)} ({iv}).")
+                      f"{against} {fmt(thr)} ({iv}).")
 
 
 def _unassessed(phrase: str, ctx: Context, original_words: Optional[str] = None) -> List[str]:
@@ -1654,7 +1674,7 @@ def _judge_uncertainty_core(cat: str, phrase: str, ctx: Context) -> Tuple[str, s
     if "small" in topics or ("equivalence" in topics and cat == "not_ruled_out"):
         judged = True
         if ev.exceeds_sesoi:
-            failures.append(f"effects smaller than the smallest effect size of interest are ruled out ({z})")
+            failures.append(f"effects smaller than the smallest effect size of interest are ruled out ({ctx.ci_text('met')})")
     if "large" in topics or "importance" in topics:
         judged = True
         if ev.equivalent and ev.level_conflict:
@@ -1691,6 +1711,8 @@ def _judge_number(h: _Hit, ctx: Context, sign: Optional[int], known) -> Tuple[st
         levels = {round(ev.zero_level * 100, 6)}
         if ev.equivalence_level is not None:
             levels.add(round(ev.equivalence_level * 100, 6))
+        if ctx.met_interval_extra() is not None:
+            levels.add(round(ev.met_level * 100, 6))
         if any(_close(x, s, q) for q in levels):
             return CONSISTENT, "Matches an interval level used in this result."
         have = " and ".join(f"{q:g}%" for q in sorted(levels, reverse=True))
@@ -1827,6 +1849,10 @@ def _judge_number(h: _Hit, ctx: Context, sign: Optional[int], known) -> Tuple[st
             elo, ehi = ev.equivalence_interval
             e = ctx.ci_text("equivalence")
             ends += [("lower", elo, e), ("upper", ehi, e)]
+        if ctx.met_interval_extra() is not None:
+            mlo, mhi = ev.met_interval
+            m = ctx.ci_text("met")
+            ends += [("lower", mlo, m), ("upper", mhi, m)]
         span = f"the data are compatible with effects from {ctx.u(lo)} to {ctx.u(hi)}"
         if word in ("high", "low"):
             # signed: "as high as 2.2" is about the upper end, "as low as" about the lower end
@@ -1885,6 +1911,8 @@ def _judge_range(h: _Hit, ctx: Context) -> Tuple[str, str]:
     intervals = [(ev.zero_level, ev.zero_interval)]
     if ev.equivalence_interval is not None and ev.equivalence_level != ev.zero_level:
         intervals.append((ev.equivalence_level, ev.equivalence_interval))
+    if ctx.met_interval_extra() is not None:
+        intervals.append(ctx.met_interval_extra())
 
     if role == "interval":
         stated = re.findall(r"(\d+(?:\.\d+)?)\s*%", h.data.get("context", ""))
@@ -2327,6 +2355,21 @@ def check_sentence(sentence: str, ctx: Context) -> CheckResult:
                 if status == CONFLICT:
                     return CONFLICT, (f"{reason} This holds whichever way the comparison runs, so it does not "
                                       f"depend on the declared contrast.")
+            # A stated bound on the size ("by at least 3", "by more than 3", "by at most 3") is
+            # judged against the absolute size of the effect; when the interval rules it out in
+            # both orders, the claim fails whichever way the comparison runs.
+            if (h.category == "magnitude" and ctx.comparison_origin_is_zero and _affirmed(original, h, hits) and
+                    (h.data.get("groups") or (None,))[0] is not None and
+                    not any(h.data.get(k) for k in ("pp", "pp_alt", "pp_units", "multiple_models")) and
+                    not re.match(r"\s*(?:[a-z]+\s+)?" + _PP, original[h.end:]) and
+                    ("unit" not in h.data or (not h.data.get("unit_compound") and
+                                              h.data["unit"] == _SIMPLE_UNITS.get((ctx.units or "").strip().lower())))):
+                qual = ((h.data.get("groups") or (None,))[0] or "").strip()
+                if qual in _LOWER_Q or qual in _UPPER_Q:
+                    status, reason = _judge_number(h, ctx, None, known)
+                    if status == CONFLICT:
+                        return CONFLICT, (f"{reason} This holds whichever way the comparison runs, so it does "
+                                          f"not depend on the declared contrast.")
             role = _number_hit_role(h, original, ctx) if h.category == "number" else None
             if (h in embedded or h.category in ("importance", "big", "significance", "nonsignificance", "evidence",
                                                 "evidence_absent", "marginal", "small", "magnitude", "percentage",
@@ -2544,9 +2587,9 @@ def _allowed_templates(ctx: Context) -> List[str]:
     if cls == "inconclusive_no_sesoi":
         return [f"A difference from zero is not established; the data are compatible with an effect of zero. The {z}."]
     if cls == "exceeds_sesoi_positive":
-        return [f"The effect is positive and larger than the smallest effect size of interest ({ctx.bound_u(high)}) ({z})."]
+        return [f"The effect is positive and larger than the smallest effect size of interest ({ctx.bound_u(high)}) ({ctx.ci_text('met')})."]
     if cls == "exceeds_sesoi_negative":
-        return [f"The effect is negative and larger in magnitude than the smallest effect size of interest ({ctx.bound_u(low)}) ({z})."]
+        return [f"The effect is negative and larger in magnitude than the smallest effect size of interest ({ctx.bound_u(low)}) ({ctx.ci_text('met')})."]
     if cls == "nonzero_negligible":
         return [f"The effect differs from zero but is smaller than the smallest effect size of interest: "
                 f"it lies within {fmt_bounds(low, high)} ({e}). It is detectable but practically negligible."]

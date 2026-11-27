@@ -20,11 +20,12 @@ from datetime import datetime, timezone
 from typing import Optional, Sequence, Tuple, Union
 
 from . import adapters
-from ._core import MIN_ALPHA, POLICIES, Evidence, Thresholds, evaluate, level_text
+from ._core import MET_METHODS, MIN_ALPHA, POLICIES, Evidence, Thresholds, evaluate, level_text
 from ._precision import checked_float
 from ._ratio_display import ratio_scale_note
 from ._version import __version__
 from .claims import CheckResult, Claims, Context, _uncertain_log_base, build_claims, check_sentence, fmt, fmt_bound, fmt_bounds, fmt_ci, fmt_p
+from .assertions import Verdict, verify as verify_assertion
 from .design import DesignTable, design_table
 
 # An estimate given with an interval may differ from the interval's midpoint by
@@ -103,6 +104,7 @@ class Plan:
     registration: Optional[str] = None
     design: Optional[str] = None
     subgroup: Optional[str] = None
+    met_method: str = "split"
 
     # ------------------------------------------------------------------ #
     def analyze(
@@ -118,6 +120,7 @@ class Plan:
         baseline: Optional[Number] = None,
         label: Optional[str] = None,
         ratio: bool = False,
+        estimand: Optional[str] = None,
     ) -> "Result":
         """Interpret one effect.
 
@@ -142,6 +145,12 @@ class Plan:
         absolute and the relative change side by side. ``label`` names this
         result (e.g. "H1, main effect") so sentences and reports point to it.
 
+        ``estimand`` says what quantity the estimate is ("difference in 20% trimmed
+        means", "log odds ratio for treatment"). It is your own description: reported,
+        never verified. Give it for SciPy results in particular: a SciPy t-test result
+        does not record whether it was trimmed (Yuen's test), Welch's or pooled, so
+        statwarrant cannot tell a difference of trimmed means from a difference of means.
+
         Explicit integral inputs that cannot be represented exactly as floats
         are refused. Numbers already rounded to floats cannot be recovered.
         """
@@ -151,6 +160,8 @@ class Plan:
 
         if baseline is not None:
             checked_float(baseline, "baseline")
+        if estimand is not None and not str(estimand).strip():
+            raise ValueError("estimand must be a non-empty description, or omitted")
         est_input = checked_float(estimate, "estimate") if result is None and estimate is not None else None
         se_input = checked_float(se, "se") if se is not None else None
         df_input = checked_float(df, "df") if result is None and df is not None else None
@@ -267,7 +278,15 @@ class Plan:
             d = df_input
             source = "estimate and standard error"
 
+        if source.startswith("scipy:") and estimand is None:
+            provenance.append(
+                "SciPy's t-test result does not record which variant produced it. With trim > 0 (Yuen's test) "
+                "the estimate is a difference of trimmed means, not of means; Welch's and the pooled test differ "
+                "in their standard errors. State what was estimated with estimand=... so the report says it.")
         res = self._finish(est, s, d, source, baseline, null, label, raw)
+        if estimand is not None:
+            res.estimand = str(estimand)
+            res.raw_input["estimand"] = str(estimand)
         if ratio and self.units and not _log_scale(self.units):
             provenance.append(f"ratio=True analyses the log of the ratio, so the estimate, interval and thresholds reported are log ratios; the "
                               f"declared units ({self.units!r}) do not say so. Declare units such as 'log "
@@ -314,7 +333,7 @@ class Plan:
             baseline = checked_float(baseline, "baseline")
             if not math.isfinite(baseline) or baseline == 0:
                 raise ValueError("baseline must be a finite, non-zero number (a relative change needs a non-zero reference)")
-        ev = evaluate(est, s, d, self.alpha, self.interval_policy, self.sesoi)
+        ev = evaluate(est, s, d, self.alpha, self.interval_policy, self.sesoi, self.met_method)
         if baseline is not None:
             relative = [x / baseline for x in (ev.estimate, *ev.zero_interval)]
             if not all(math.isfinite(x) for x in relative):
@@ -353,6 +372,9 @@ class Plan:
                 out["design"] = self.design
             if self.subgroup is not None:
                 out["subgroup"] = self.subgroup
+            # added in 0.6.0; hashed only when not the default, so earlier plans keep their fingerprints
+            if self.met_method != "split":
+                out["met_method"] = self.met_method
         return out
 
     def fingerprint_for(self, version: int) -> str:
@@ -470,6 +492,7 @@ def declare(
     registration: Optional[str] = None,
     design: Optional[str] = None,
     subgroup: Optional[str] = None,
+    met_method: str = "split",
 ) -> Plan:
     """Fix the rules of interpretation before looking at the result.
 
@@ -505,6 +528,13 @@ def declare(
     subgroup : str, optional
         When the result is itself a subgroup result ("patients on mechanical
         ventilation"): sentences naming that subgroup are not flagged as subgroup claims.
+    met_method : {"split", "relevance"}
+        How the minimal-effect test ("the effect exceeds the SESOI") controls its error.
+        "split" (default) reads the (1 - alpha) interval, alpha / 2 per direction; its
+        largest type I error is close to alpha / 2 unless the bounds are near zero.
+        "relevance" is the test for relevant differences of Hodges and Lehmann (1954):
+        its largest type I error is exactly alpha, which gives more power for wide bounds.
+        Part of the plan fingerprint when not the default.
     """
     if interval_policy not in POLICIES:
         raise ValueError(f"interval_policy must be one of {POLICIES}")
@@ -520,6 +550,8 @@ def declare(
                              "'cohort', 'case-control', 'cross-sectional'), or omitted")
     if subgroup is not None and not str(subgroup).strip():
         raise ValueError("subgroup must be a non-empty description, or omitted")
+    if met_method not in MET_METHODS:
+        raise ValueError(f"met_method must be one of {MET_METHODS}")
 
     bounds = None
     if sesoi is not None:
@@ -555,6 +587,7 @@ def declare(
         registration=registration,
         design=design,
         subgroup=None if subgroup is None else str(subgroup),
+        met_method=met_method,
     )
 
 
@@ -570,6 +603,8 @@ class Result:
     raw_input: dict = field(default_factory=dict)
     checked: list = field(default_factory=list)
     _design: Optional[DesignTable] = field(default=None, repr=False)
+    estimand: Optional[str] = None
+    reviews: list = field(default_factory=list)
 
     # ------------------------------------------------------------------ #
     def check(self, sentence: str, *, record: bool = True) -> CheckResult:
@@ -583,6 +618,33 @@ class Result:
             self.checked.append(res)
         return res
 
+    def review(self, sentence: str, llm, *, rewrite: bool = True, record: bool = True):
+        """Read a sentence with a language model and judge what it claims (experimental).
+
+        The model (see :mod:`statwarrant.llm`) lists the sentence's claims as structured
+        assertions and notes what numbers cannot check; statwarrant judges every assertion
+        with its own tests and also runs the rule-based check. If there are problems and
+        ``rewrite`` is true, the model proposes a rewrite from the allowed statements, which
+        is checked again and offered only if nothing in it conflicts with the result.
+
+        The sentence and the plan's descriptions are sent to the model's provider. The
+        model is not shown the result's numbers while it reads. With ``record`` (default),
+        the review is kept in the report. Never an approval of the sentence.
+        """
+        from .llm import review as _review
+        out = _review(self, sentence, llm, rewrite=rewrite, record=record)
+        if record:
+            self.reviews.append(out)
+        return out
+
+    def verify(self, assertion) -> "Verdict":
+        """Judge one structured assertion (an :class:`~statwarrant.Assertion` or a dict) against this result.
+
+        The verdict ("supported", "not_established", "contradicted" or "to_verify") concerns the
+        statistical proposition only, never the wording of a sentence.
+        """
+        return verify_assertion(assertion, self.context)
+
     @property
     def thresholds(self) -> Thresholds:
         """Decisions for every symmetric threshold at once."""
@@ -591,7 +653,7 @@ class Result:
     def not_verified(self) -> list:
         """What statwarrant does not check, for this result."""
         items = [
-            "That the outcome, contrast and scope descriptions are accurate: they are your own text.",
+            "That the outcome, contrast, scope and estimand descriptions are accurate: they are your own text.",
             "Whether the design supports causal claims (randomisation, confounding).",
             "Whether the result generalises beyond the declared scope.",
             "Whether the model behind the estimate and standard error is appropriate "
@@ -623,12 +685,14 @@ class Result:
             "label": self.label,
             "plan": self.plan.to_dict(),
             "input": self.source,
+            "estimand": self.estimand,
             "raw_input": self.raw_input,
             "null_value": self.null,
             "evidence": self.evidence.to_dict(),
             "thresholds": dict(th.to_dict(), declared_threshold=self._declared_position()),
             "claims": self.claims.to_dict(),
             "checked_sentences": [c.to_dict() for c in self.checked],
+            "reviewed_sentences": [r.to_dict() for r in self.reviews],
             "not_verified": self.not_verified(),
         }
         if self.context.baseline is not None:
@@ -660,8 +724,10 @@ class Result:
             out.append("- No positive threshold gives an effect beyond it: the difference from zero is not "
                        "established at the declared significance level.")
         else:
+            how = ("relevance test at the declared alpha" if th.met_method == "relevance"
+                   else f"{level_text(th.met_level)} interval")
             out.append(f"- An effect larger than ±d is established for every threshold d below "
-                       f"**{fmt_down(th.met_below)}{u}** ({level_text(th.met_level)} interval; cut-off about "
+                       f"**{fmt_down(th.met_below)}{u}** ({how}; cut-off about "
                        f"{th.met_below:.6g}).")
         out.append(f"- Equivalence within ±d is established for every threshold d above "
                    f"**{fmt_up(th.equivalence_above)}{u}** ({level_text(th.equivalence_level)} interval; "
@@ -690,6 +756,8 @@ class Result:
         lines.append(f"- **Outcome:** {p.outcome or 'not stated'}")
         lines.append(f"- **Contrast:** {p.contrast or 'not stated'}")
         lines.append(f"- **Scope:** {p.scope or 'not stated'}")
+        if self.estimand:
+            lines.append(f"- **Estimand:** {self.estimand}")
         lines.append(f"- **Input:** {self.source}")
         lines += ["", "### Declared plan (timing not verified)"]
         if p.sesoi:
@@ -697,7 +765,8 @@ class Result:
                          f"because: {p.sesoi_source}")
         else:
             lines.append("- **Smallest effect size of interest:** none declared")
-        lines.append(f"- **Alpha:** {p.alpha}; **interval policy:** {p.interval_policy}")
+        lines.append(f"- **Alpha:** {p.alpha}; **interval policy:** {p.interval_policy}"
+                     + ("; **minimal-effect test:** relevance (Hodges & Lehmann, 1954)" if p.met_method == "relevance" else ""))
         lines.append(f"- **Plan fingerprint (v{p.FINGERPRINT_VERSION}):** `{p.fingerprint[:16]}`")
         lines.append(f"- **Registration (your reference, not verified):** "
                      f"{p.registration or 'none given; the fingerprint alone proves nothing'}")
@@ -714,8 +783,9 @@ class Result:
             lines.append(f"| Equivalent (TOST) | {level_text(ev.equivalence_level)} {fmt_ci(elo, ehi)} | "
                          f"{fmt_p(ev.p_equivalence)} (one-sided, vs {fmt(ev.equivalence_threshold)}) | "
                          f"{'yes' if ev.equivalent else 'not established'} |")
+            kind = "relevance test" if ev.met_method == "relevance" else "one-sided"
             lines.append(f"| Exceeds SESOI (MET) | {level_text(ev.met_level)} {fmt_ci(mlo, mhi)} | "
-                         f"{fmt_p(ev.p_minimal_effect)} (one-sided, vs {fmt(ev.met_threshold)}) | "
+                         f"{fmt_p(ev.p_minimal_effect)} ({kind}, vs {fmt(ev.met_threshold)}) | "
                          f"{'yes' if ev.exceeds_sesoi else 'not established'} |")
         lines += ["", "### Every threshold at once", ""]
         lines.append("Computed from the same estimate and standard error, not new tests. Decisions use test-statistic "
@@ -740,6 +810,11 @@ class Result:
                 lines += [f"  - {w.status}, {w.rule}, \"{w.text}\": {w.reason}" for w in c.warnings]
                 if c.unchecked:
                     lines.append("  - not checked: " + ", ".join(f"\"{u}\"" for u in c.unchecked))
+        if self.reviews:
+            lines += ["", "### Sentences reviewed with a language model (experimental)",
+                      "A language model listed each sentence's claims; statwarrant judged them with its own tests. "
+                      "No warning is not a clearance.", ""]
+            lines += [r.to_markdown() for r in self.reviews]
         lines += ["", "### Not verified by statwarrant"] + [f"- {n}" for n in self.not_verified()]
         if self._design is not None:
             lines += ["", self._design.to_markdown()]

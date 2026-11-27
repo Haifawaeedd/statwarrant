@@ -7,6 +7,11 @@ zero, and report held-out results in [VALIDATION.md](VALIDATION.md).
 
 ## 0.6.0: optional reader layer
 
+Status: released in 0.6.0 (structured assertions, `res.review()`, MCP server, relevance test,
+estimand). The reader is released as **experimental** before step 4: its accuracy has not been
+measured, and it stays labelled experimental until it is. Still to do: step 4 (evaluation) and
+the within-group change warning.
+
 Rules match words; they cannot judge meaning. Some overclaims need a reader:
 
 * a measure described as a broader ability ("51 points better at medical reasoning" when
@@ -26,7 +31,7 @@ Plan:
 3. **Separate and optional.** The reader is an extra, off by default, with the model and its
    answers recorded. It never turns a rule conflict into a pass and never approves a
    sentence; it can only add a warning.
-4. **Measured before release.** The reader is evaluated against the human reader study and
+4. **Measured before it loses the experimental label.** The reader is evaluated against the human reader study and
    against at least one model from a different provider, with results published in
    VALIDATION.md.
 

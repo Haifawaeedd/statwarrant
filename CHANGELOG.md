@@ -1,5 +1,51 @@
 # Changelog
 
+## 0.6.0
+
+New, all optional; existing results and fingerprints are unchanged. This release also
+contains the two 0.5.4 fixes below; 0.5.4 itself was not published separately.
+
+* **Structured claims.** `Assertion(kind, direction, value, polarity, quote)` and
+  `Result.verify()` judge one claim written as fields with the same tests as the claim
+  contract: supported, not established, contradicted or to verify. Denials and hedges are
+  never cleared. A verdict concerns the statistical proposition only, never wording.
+* **Language-model reader (experimental).** `Result.review(sentence, llm=...)`: a model lists
+  the sentence's claims as assertions and notes what numbers cannot check; statwarrant judges
+  them and runs the rule-based checker. The model is not shown the result's numbers. A
+  rewrite from the allowed statements is offered only if it passes the checks again. Any
+  provider: `AnthropicLLM`, `OpenAILLM` (also OpenAI-compatible local servers),
+  `CallableLLM`. Extras: `statwarrant[anthropic]`, `statwarrant[openai]`. Experimental: tested
+  only with scripted models, its accuracy has not been measured.
+* **MCP server.** `statwarrant[mcp]` installs `statwarrant-mcp` (stdio, or Streamable HTTP
+  with `--http`) with read-only tools `analyze_result`, `verify_assertions` and
+  `check_sentences`, for Claude, ChatGPT and other assistants. A Hugging Face Space recipe
+  is in `deploy/huggingface-space/`.
+* **Test for relevant differences.** `declare(met_method="relevance")` runs the minimal-effect
+  test of Hodges and Lehmann (1954): largest type I error exactly alpha, more power for wide
+  bounds. The default `"split"` method is unchanged; its largest type I error is close to
+  alpha / 2 for bounds wider than about one standard error, which is now documented.
+* **Estimand.** `analyze(..., estimand="...")` records what the estimate is. SciPy t-test
+  results, which do not record trimming (Yuen's test), Welch or pooling, get a note when no
+  estimand is given: with `trim=0.2` the estimate is a difference of trimmed means.
+* Tests: `tests/test_relevance_060.py`, `test_estimand_060.py`, `test_assertions_060.py`,
+  `test_llm_060.py`, `test_mcp_server_060.py` (1,945 tests in total).
+
+## 0.5.4 (not published separately; included in 0.6.0)
+
+Two known issues from outside checks of 0.5.3, fixed before the human-review evaluation
+started.
+
+* **Stated size bounds.** "The new method improved exam performance by at least 3 points"
+  (estimate 4.27, 95% CI 0.40 to 8.15) was only "to verify" because the comparison could
+  not be tied to the declared contrast. An effect of at least 3 points is not established
+  whichever way the comparison runs, so "by at least / more than / over N" is now a
+  conflict when the interval rules it out in both orders. Negated or hedged bounds, and
+  numbers written with another unit, are unchanged.
+* **Causal nouns.** "The results prove causality" flagged only "prove". "causality" and
+  "causation" are now recognised as causal claims (a conflict with a declared
+  observational design, otherwise "to verify").
+* Regression tests: `tests/test_known_issues_054.py`.
+
 ## 0.5.3
 
 A test statwarrant does not run is never judged against, or replaced by, the zero test.

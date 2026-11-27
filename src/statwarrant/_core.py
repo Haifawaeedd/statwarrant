@@ -22,6 +22,27 @@ Every decision is read from a confidence interval.
 
 Version 0.1.0 also ran the minimal-effect test at alpha per side under
 ``"standard"``; its type I error could then approach 2 alpha. That was removed.
+
+The minimal-effect test has two methods (``met_method``):
+
+* ``"split"`` (default): alpha / 2 per direction, as above. Its largest type I error
+  over the null region is alpha only when the bounds are close to zero relative to
+  the standard error; for wider bounds it is close to alpha / 2 (for example 2.5%
+  at alpha = 0.05 once the half-width exceeds about one standard error).
+* ``"relevance"``: the test for relevant differences of Hodges and Lehmann (1954),
+  revisited by Wellek (2010, 2017). The per-side level a solves
+  ``a + P(T > w / se + q(a)) = alpha`` with ``q(a)`` the upper a critical value and
+  ``w`` the width of the bounds. The largest type I error over the null region is
+  then exactly alpha, attained at the bounds, while a moves from alpha / 2 (bounds
+  near zero) to alpha (wide bounds). For symmetric bounds this is the test that
+  rejects when ``|estimate| / se`` exceeds the alpha critical value of the folded
+  distribution centred at the bound. With an estimated standard error the level is
+  chosen from the observed standard error, as in other plug-in procedures; size
+  was checked by simulation (see VALIDATION.md).
+
+References: Hodges, J. L. & Lehmann, E. L. (1954). Testing the approximate validity of
+statistical hypotheses. JRSS B, 16(2), 261-268. Wellek, S. (2010). Testing Statistical
+Hypotheses of Equivalence and Noninferiority (2nd ed.). Chapman & Hall/CRC.
 """
 
 from __future__ import annotations
@@ -33,11 +54,12 @@ import warnings
 from dataclasses import dataclass, field, replace
 from typing import Optional, Tuple
 
-from scipy import integrate, special, stats
+from scipy import integrate, optimize, special, stats
 
 from ._precision import checked_float
 
 POLICIES = ("single", "standard")
+MET_METHODS = ("split", "relevance")
 MIN_ALPHA = 1e-10
 
 
@@ -159,6 +181,48 @@ def _interval_tail(estimate: float, se: float, tail: float, df: Optional[float])
     return (estimate - c * se, estimate + c * se)
 
 
+def relevance_tail(width_over_se: float, alpha: float, df: Optional[float]) -> float:
+    """Per-side level of the test for relevant differences (Hodges & Lehmann, 1954).
+
+    For bounds of width ``w`` (in standard errors), returns the a in [alpha / 2, alpha]
+    that solves ``a + P(T > w + q(a)) = alpha``, where ``q(a)`` is the upper-a critical
+    value of the reference distribution (Student t with ``df``, or normal). Rejecting
+    when the (1 - 2a) interval lies beyond a bound then has largest type I error alpha
+    over the null region, attained at either bound. ``a`` is alpha / 2 for ``w = 0``
+    (the test coincides with the zero test) and tends to alpha as ``w`` grows.
+    """
+    w = float(width_over_se)
+    if math.isnan(w) or w < 0:
+        raise ValueError("the width of the bounds must be a nonnegative number of standard errors")
+    lo = alpha / 2
+    if w == 0:
+        return lo
+    if math.isinf(w):
+        return alpha
+    dist = _dist(df)
+
+    def excess(a: float) -> float:
+        return a + float(dist.sf(w + float(dist.isf(a)))) - alpha
+
+    if excess(alpha) <= 0:  # the far tail is below floating-point resolution
+        return alpha
+    if excess(lo) >= 0:
+        return lo
+    return float(optimize.brentq(excess, lo, alpha, xtol=alpha * 1e-15, rtol=4 * sys.float_info.epsilon,
+                                 maxiter=500))
+
+
+def relevance_critical(width_over_se: float, alpha: float, df: Optional[float]) -> float:
+    """Critical value q(a) of the relevance test for bounds ``width_over_se`` standard errors wide."""
+    return _critical_from_tail(relevance_tail(width_over_se, alpha, df), df)
+
+
+def _relevance_p(dist, excess: float, width_over_se: float, df: Optional[float]) -> float:
+    """p-value of the relevance test: the null probability, at the nearer bound, of a result at
+    least ``excess`` standard errors beyond that bound or as far beyond the other bound."""
+    return min(1.0, _tail_p(dist, excess, df) + _tail_p(dist, width_over_se + excess, df))
+
+
 @dataclass(frozen=True)
 class Thresholds:
     """The decision for every symmetric threshold (-d, d) at once.
@@ -190,6 +254,15 @@ class Thresholds:
     se: float = field(default=1.0, repr=False)
     met_critical: float = field(default=math.inf, repr=False)
     equivalence_critical: float = field(default=math.inf, repr=False)
+    # With the relevance test the minimal-effect critical value depends on the threshold.
+    met_method: str = field(default="split", repr=False)
+    alpha: float = field(default=0.05, repr=False)
+    df: Optional[float] = field(default=None, repr=False)
+
+    def _met_critical_at(self, d: float) -> float:
+        if self.met_method == "relevance":
+            return relevance_critical(2 * d / self.se, self.alpha, self.df)
+        return self.met_critical
 
     def decision(self, d: float) -> str:
         """"exceeds", "equivalent" or "undetermined" for the symmetric threshold (-d, d).
@@ -200,7 +273,7 @@ class Thresholds:
         d = checked_float(d, "threshold")
         if not (math.isfinite(d) and d > 0):
             raise ValueError("a threshold must be a finite positive number")
-        if (abs(self.estimate) - d) / self.se > self.met_critical:
+        if (abs(self.estimate) - d) / self.se > self._met_critical_at(d):
             return "exceeds"
         if (d - abs(self.estimate)) / self.se > self.equivalence_critical:
             return "equivalent"
@@ -209,7 +282,8 @@ class Thresholds:
     def to_dict(self) -> dict:
         return {
             "met_below": self.met_below,
-            "met_interval_level": self.met_level,
+            "met_interval_level": None if self.met_method == "relevance" else self.met_level,
+            "met_method": self.met_method,
             "equivalence_above": self.equivalence_above,
             "equivalence_interval_level": self.equivalence_level,
         }
@@ -251,6 +325,9 @@ class Evidence:
 
     claim_class: str
     level_conflict: bool
+    # "split" (alpha / 2 per direction) or "relevance" (Hodges & Lehmann, 1954).
+    # With "relevance", met_threshold is alpha: the relevance p-value is compared with it.
+    met_method: str = "split"
 
     def thresholds(self) -> Thresholds:
         """Decisions for every symmetric threshold at once (see :class:`Thresholds`)."""
@@ -261,7 +338,9 @@ class Evidence:
         elo, ehi = _interval_tail(self.estimate, self.se, eq_tail, self.df)
         th = Thresholds(met_below, self.zero_level, max(abs(elo), abs(ehi)), eq_level,
                         self.estimate, self.se, _critical_from_tail(self.alpha / 2, self.df),
-                        _critical_from_tail(eq_tail, self.df))
+                        _critical_from_tail(eq_tail, self.df), self.met_method, self.alpha, self.df)
+        if met_below is not None and self.met_method == "relevance":
+            met_below = _relevance_cutoff_guess(th, met_below)
         # Interval and test-statistic arithmetic can diverge by many floats near
         # cancellation. Find the exact transitions of decision(), not just nearby
         # interval endpoints, so the printed cut-offs cannot contradict it.
@@ -305,10 +384,13 @@ class Evidence:
                 "equivalent": self.equivalent,
             }
             out["minimal_effect_test"] = {
+                "method": self.met_method,
                 "interval_level": self.met_level,
                 "interval": list(self.met_interval),
-                "per_side_threshold": self.met_threshold,
+                "per_side_threshold": (1 - self.met_level) / 2 if self.met_method == "relevance" else self.met_threshold,
                 "p_value": self.p_minimal_effect,
+                "p_value_kind": "relevance (Hodges-Lehmann)" if self.met_method == "relevance" else "one-sided",
+                "p_value_threshold": self.met_threshold,
                 "exceeds_sesoi": self.exceeds_sesoi,
             }
             if self.p_equivalence == 0.0:
@@ -316,6 +398,25 @@ class Evidence:
             if self.p_minimal_effect == 0.0:
                 out["minimal_effect_test"]["p_value_underflow_or_unavailable"] = True
         return out
+
+
+def _relevance_cutoff_guess(th: "Thresholds", fallback: float) -> float:
+    """Starting point for the relevance test's MET cut-off: the root of
+    (|estimate| - d) / se = q(2 d / se). The decision is monotone in d (the critical value
+    falls by less than one standard error per standard error of threshold), so the root is
+    unique; _edge then finds the exact float where decision() changes."""
+    target = abs(th.estimate)
+
+    def h(d: float) -> float:
+        return (target - d) / th.se - th._met_critical_at(d)
+
+    try:
+        tiny = min(target, th.se) * 1e-12
+        if not (tiny > 0 and h(tiny) > 0 > h(target)):
+            return fallback
+        return float(optimize.brentq(h, tiny, target, xtol=1e-15 * target, rtol=4 * sys.float_info.epsilon))
+    except (ValueError, ArithmeticError, RuntimeError):
+        return fallback
 
 
 _MAX_FINITE_BITS = 0x7FEFFFFFFFFFFFFF
@@ -380,10 +481,13 @@ def evaluate(
     alpha: float,
     policy: str,
     sesoi: Optional[Tuple[float, float]],
+    met_method: str = "split",
 ) -> Evidence:
     """Run the three tests and classify the result."""
     if policy not in POLICIES:
         raise ValueError(f"interval_policy must be one of {POLICIES}, got {policy!r}")
+    if met_method not in MET_METHODS:
+        raise ValueError(f"met_method must be one of {MET_METHODS}, got {met_method!r}")
     estimate = checked_float(estimate, "estimate")
     se = checked_float(se, "se")
     df = None if df is None else checked_float(df, "df")
@@ -427,7 +531,7 @@ def evaluate(
             zero_level, zero_iv, p_zero, differs,
             None, None, None, None, None,
             None, None, None, None, None,
-            cls, False,
+            cls, False, met_method,
         )
 
     low, high = sesoi
@@ -443,14 +547,28 @@ def evaluate(
     p_eq = max(_tail_p(dist, z_low, df), _tail_p(dist, z_high, df))
     equivalent = z_low > c_eq and z_high > c_eq
 
-    # Minimal effect (MET): reject H0: low <= theta <= high in either direction,
-    # alpha / 2 per direction, i.e. the (1 - alpha) interval beyond a bound.
-    met_threshold = alpha / 2
-    met_level = 1 - alpha
-    met_iv = zero_iv
-    p_met = min(_tail_p(dist, -z_high, df), _tail_p(dist, -z_low, df))
-    met_pos = -z_high > c_zero
-    met_neg = -z_low > c_zero
+    # Minimal effect (MET): reject H0: low <= theta <= high in either direction.
+    if met_method == "relevance":
+        # Hodges & Lehmann (1954): per-side level a with a + P(T > w + q(a)) = alpha, so the
+        # largest type I error over [low, high] is alpha; read from the (1 - 2a) interval.
+        width = (high - low) / se
+        if not math.isfinite(width):
+            raise ValueError("the inputs are too large for floating point; rescale the outcome and the SESOI")
+        met_tail = relevance_tail(width, alpha, df)
+        c_met = _critical_from_tail(met_tail, df)
+        met_threshold = alpha
+        met_level = 1 - 2 * met_tail
+        met_iv = _interval_tail(estimate, se, met_tail, df)
+        p_met = _relevance_p(dist, max(-z_high, -z_low), width, df)
+    else:
+        # alpha / 2 per direction, i.e. the (1 - alpha) interval beyond a bound.
+        c_met = c_zero
+        met_threshold = alpha / 2
+        met_level = 1 - alpha
+        met_iv = zero_iv
+        p_met = min(_tail_p(dist, -z_high, df), _tail_p(dist, -z_low, df))
+    met_pos = -z_high > c_met
+    met_neg = -z_low > c_met
     exceeds = met_pos or met_neg
 
     # Wording only: an interval that passes a bound by floating-point noise
@@ -487,5 +605,5 @@ def evaluate(
         zero_level, zero_iv, p_zero, differs,
         eq_level, eq_iv, eq_threshold, p_eq, equivalent,
         met_level, met_iv, met_threshold, p_met, exceeds,
-        cls, conflict,
+        cls, conflict, met_method,
     )

@@ -185,9 +185,9 @@
 
 بعد تجميد ملفات المراجعين وملف التحكيم فقط:
 
-1. ثبّتي النسخة المجمّدة نفسها، مثل `pip install statwarrant==0.5.3`، ولا تعدّلي المكتبة طوال التقييم.
+1. ثبّتي النسخة المجمّدة نفسها، مثل `pip install statwarrant==0.6.0`، ولا تعدّلي المكتبة طوال التقييم.
 2. شغّلي المكتبة على الحالات:
-   `python run_frozen.py cases.csv --version 0.5.3 --out tool_outputs.csv`
+   `python run_frozen.py cases.csv --version 0.6.0 --out tool_outputs.csv`
    يرفض السكربت العمل على أي إصدار آخر، ويسجّل بصمة SHA-256 لملف الحالات، ولا يقرأ ملفات المراجعين. الحالات التي لا تحتوي تقديرًا وخطأً معياريًا أو فاصل ثقة تُسجَّل كـ «غير قابلة للتشغيل» ولا تُحذف.
 3. أنشئي بطاقة التقييم:
    `python scorecard.py --cases cases.csv --tool tool_outputs.csv --adjudication adjudication.csv --reviewer-a reviewer_A.csv --reviewer-b reviewer_B.csv --out scorecard.md`
