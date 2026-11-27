@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.6.1
+
+* **Reader failures are reported.** In 0.6.0, when a language model's reply had no
+  `"assertions"` list (a wrong key, a non-list, or a non-object reply), `res.review()` silently
+  read no claims and reported no error, so the review rested on the rules alone without saying
+  so. Found in an outside benchmark with a local Qwen model. Such replies now add an error, and
+  the new `Review.read_ok` (also in `to_dict()`) is `False` for them and for provider errors.
+  No rewrite is attempted after a failed reading. Items in the list that are not objects are
+  reported and skipped. Regression tests: `tests/test_reader_errors_061.py`.
+* **"Beyond the range deemed negligible."** The rule checker read "negligible" alone and raised
+  the opposite conflict on a correct claim of importance (an effect beyond the SESOI), and called
+  the same sentence consistent with an equivalent result. Placing an effect beyond or outside a
+  negligible range or region is now read as an importance claim. Found in the same outside
+  benchmark (InsectSprays, three contrasts, one wording).
+* **"The same population mean."** "A and B have the same population mean" and "the means were
+  identical" were not recognised; they are now claims of no effect. Regression tests:
+  `tests/test_outside_benchmark_061.py`. On that benchmark's 96 constructed claims the rules now
+  flag 69 of 72 unsupported (57 in 0.6.0) and 0 of 24 supported (3 in 0.6.0); these wordings
+  were used to write the fix, so this is development data. No change on the 405 reader-experiment
+  sentences or the MedLitSpin conclusions.
+
 ## 0.6.0
 
 New, all optional; existing results and fingerprints are unchanged. This release also

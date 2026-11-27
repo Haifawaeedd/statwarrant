@@ -1,14 +1,20 @@
-# Known issues in statwarrant 0.6.0 (experimental alpha)
+# Known issues in statwarrant 0.6.1 (experimental alpha)
 
 These are known, unresolved issues. The examples are targeted checks, not estimates
 of how often errors occur. Use statwarrant as an aid, not an automated validator;
 independently check calculations and the full text of research claims.
 
 
-## New in 0.6.0
+## Language-model reader (0.6.0 and later)
 
+* **Reader failures (fixed in 0.6.1).** A reply without an `"assertions"` list used to be read
+  as "no claims" without any error. It is now reported, and `Review.read_ok` is `False`. When
+  evaluating a reader, report the share of reviews with `read_ok` false.
+* **Bare difference claims.** "The groups differed" or "the population means differ", without
+  "significantly", is not judged; it is neither flagged nor confirmed (found in an outside
+  benchmark, 0.6.1).
 * **Language-model reader not evaluated.** `res.review()` has been tested only with scripted
-  fake models. Its accuracy depends on the model and has not been measured against human
+  fake models and in small outside benchmarks. Its accuracy depends on the model and has not been measured against human
   labels; until it is, treat its readings as suggestions to check. It sends the sentence and
   the plan's descriptions to the model's provider.
 * **Direction comes from the reader.** In `res.review()` and through the MCP server, the

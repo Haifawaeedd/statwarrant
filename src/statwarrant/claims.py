@@ -293,6 +293,16 @@ _NOUNS = (r"(?:effects?|differences?|impacts?|associations?|relationships?|chang
 _VERBS = (r"(?:affect|change|differ|improve|increase|decrease|reduce|raise|lower|influence|help|matter|work|"
           r"benefit|boost|harm|hurt|outperform|beat|impair|worsen)")
 _SMALL = r"(?:negligible|trivial|tiny|small|modest|slight|minor|minimal|marginal)"
+# A size placed outside the negligible region is a claim of importance, not of smallness.
+_BEYOND_NEGLIGIBLE = (r"(?:beyond|outside(?:\s+of)?|exceed(?:s|ed|ing)?|above|over|larger\s+than|greater\s+than|"
+                      r"bigger\s+than|more\s+than)\s+(?:the\s+|a\s+|this\s+|that\s+|our\s+)?(?:pre-?specified\s+|"
+                      r"declared\s+|predefined\s+)?(?:range|region|zone|band|bounds?|interval|margin|threshold|limits?)"
+                      r"(?:\s+(?:of|deemed|considered|regarded\s+as|judged|defined\s+as|taken\s+as))?"
+                      r"(?:\s+(?:to\s+be\s+|as\s+)?)?\s*(?:practically\s+|clinically\s+)?(?:negligible|trivial)"
+                      r"(?:\s+(?:differences?|effects?|values?))?\b|"
+                      r"(?:beyond|outside(?:\s+of)?|exceed(?:s|ed|ing)?|above)\s+(?:the\s+|a\s+|this\s+|that\s+)?"
+                      r"(?:practically\s+|clinically\s+)?(?:negligible|trivial)\s+"
+                      r"(?:range|region|zone|band|bounds?|interval|margin|threshold|limits?)\b")
 _BIG = (r"(?:large|huge|big|dramatic(?:ally)?|massive(?:ly)?|strong(?:ly)?|considerabl[ey]|substantial(?:ly)?|"
         r"marked(?:ly)?|major|sizable|sizeable|enormous(?:ly)?|remarkabl[ey]|striking(?:ly)?|impressive(?:ly)?|"
         r"vast(?:ly)?|greatly|great|powerful(?:ly)?|profound(?:ly)?|tremendous(?:ly)?)")
@@ -416,6 +426,8 @@ _WORD_PATTERNS = [
                     r"substantial|notable|appreciable|clinically relevant|clinically meaningful) " + _NOUNS + r"|"
                     r"(?:similar|the same) (?:performance|results|outcomes|effects?|accuracy|scores)|"
                     r"perform(?:s|ed)? (?:similarly|the same|equally))\b"),
+    # "beyond the range deemed negligible": read before "small", which would take "negligible" alone
+    ("importance", r"\b" + _BEYOND_NEGLIGIBLE),
     ("small", r"\btoo\s+(?:small|little|minor|slight)\s+to\s+(?:matter|be\s+(?:practically\s+|clinically\s+|"
               r"educationally\s+)?(?:important|meaningful|relevant|noticeable))\b|"
               r"\b(?:negligibl[ey]|trivial(?:ly)?)\b|"
@@ -436,7 +448,11 @@ _WORD_PATTERNS = [
                   r"\b(?:ineffective|unaffected|unchanged|unrelated to|uncorrelated with)\b|"
                   r"\b(?:was|were|is|are|been|be)\s*(?:not|n't)\s+(?:associated|related|linked|correlated)\s+"
                   r"(?:with|to)\b|"
-                  r"\bneither\b[^.;]*?\bnor\b(?:\s+\w+)?"),
+                  r"\bneither\b[^.;]*?\bnor\b(?:\s+\w+)?|"
+                  # "A and B have the same population mean", "the means were identical"
+                  r"\b(?:have|had|has|share|shared|with)\s+(?:the\s+)?(?:same|identical|equal)\s+(?:population\s+|true\s+)?"
+                  r"(?:means?|averages?|medians?)\b|"
+                  r"\b(?:population\s+|true\s+)?(?:means|averages|medians)\s+(?:are|were|is|was)\s+(?:the\s+same|identical|equal)\b"),
     ("certainty", r"\b(?:prove[sdn]?|proof|conclusively|definitely|certainly|undeniabl[ey]|exactly|precisely|"
                   r"guarantee[sd]?|guaranteeing)\b"),
     ("generalization", r"\b(?:in general|generally|always|universally|for everyone|for everybody|everyone|everybody|"
