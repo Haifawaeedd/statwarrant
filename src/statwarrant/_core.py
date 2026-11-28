@@ -181,6 +181,23 @@ def _interval_tail(estimate: float, se: float, tail: float, df: Optional[float])
     return (estimate - c * se, estimate + c * se)
 
 
+def sesoi_bound_direction(ev, value: float) -> int:
+    """+1 / -1 when ``value`` is the SESOI bound on the positive / negative side, else 0.
+
+    A claim of an effect of at least the SESOI is the same proposition as an effect beyond the
+    SESOI, so it must be judged by the minimal-effect test, whichever method that test uses."""
+    if ev.sesoi is None:
+        return 0
+    low, high = ev.sesoi
+    tol = 1e-9 * max(1.0, abs(low), abs(high))
+    v = abs(value)
+    if abs(v - high) <= tol:
+        return 1 if abs(v + low) > tol else 2   # 2: both sides (symmetric SESOI)
+    if abs(v + low) <= tol:
+        return -1
+    return 0
+
+
 def relevance_tail(width_over_se: float, alpha: float, df: Optional[float]) -> float:
     """Per-side level of the test for relevant differences (Hodges & Lehmann, 1954).
 
@@ -551,7 +568,10 @@ def evaluate(
     if met_method == "relevance":
         # Hodges & Lehmann (1954): per-side level a with a + P(T > w + q(a)) = alpha, so the
         # largest type I error over [low, high] is alpha; read from the (1 - 2a) interval.
-        width = (high - low) / se
+        # With unequal bounds the level comes from the narrower side (twice the nearer bound), so
+        # the test stays valid (size <= alpha) and never establishes an effect beyond a bound
+        # that the zero test does not also establish (0.6.2; outside review).
+        width = 2 * min(-low, high) / se
         if not math.isfinite(width):
             raise ValueError("the inputs are too large for floating point; rescale the outcome and the SESOI")
         met_tail = relevance_tail(width, alpha, df)

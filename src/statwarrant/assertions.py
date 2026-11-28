@@ -20,7 +20,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional, Union
 
-from ._core import level_text
+from ._core import level_text, sesoi_bound_direction
 from .claims import Context, fmt, fmt_bounds, fmt_ci
 
 #: kinds of claims that can be judged
@@ -176,6 +176,17 @@ def _judge(a: Assertion, ctx: Context):
             if lo > v or hi < -v:
                 return CONTRADICTED, f"The {z} lies beyond ±{fmt(v)}."
             return NOT_ESTABLISHED, f"An effect of at most {fmt(v)} in size is not established ({z})."
+        # "at least the SESOI" is the minimal-effect claim: judge it with that test (0.6.2).
+        side = sesoi_bound_direction(ev, v) if a.kind == "at_least" else 0
+        if side and (side == 2 or side == s):
+            m = ctx.ci_text("met")
+            if ev.exceeds_sesoi and ev.direction == s:
+                return SUPPORTED, f"The minimal-effect test establishes an effect beyond {fmt(s * v)} ({m})."
+            far_end = hi if s > 0 else -lo
+            if ev.exceeds_sesoi or ev.equivalent or far_end < v:
+                return CONTRADICTED, (f"The result rules out an effect of {fmt(s * v)} or more in that direction "
+                                      f"({m if ev.exceeds_sesoi or ev.equivalent else z}).")
+            return NOT_ESTABLISHED, f"An effect beyond {fmt(s * v)} is not established ({m})."
         # signed: "A exceeds B by at least v" is theta >= v (or theta <= -v for negative)
         near, far = (lo, hi) if s > 0 else (-hi, -lo)
         if a.kind == "at_least":

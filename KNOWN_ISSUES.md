@@ -1,4 +1,4 @@
-# Known issues in statwarrant 0.6.1 (experimental alpha)
+# Known issues in statwarrant 0.6.2 (experimental alpha)
 
 These are known, unresolved issues. The examples are targeted checks, not estimates
 of how often errors occur. Use statwarrant as an aid, not an automated validator;
@@ -10,6 +10,12 @@ independently check calculations and the full text of research claims.
 * **Reader failures (fixed in 0.6.1).** A reply without an `"assertions"` list used to be read
   as "no claims" without any error. It is now reported, and `Review.read_ok` is `False`. When
   evaluating a reader, report the share of reviews with `read_ok` false.
+* **Hedged claims depend on the route.** In the rule checker a hedge does not protect a direction or
+  significance word: "may improve survival" is a conflict when the interval includes zero. In
+  `verify()` and `review()`, an assertion with polarity "hedged" is never cleared and is sent to review.
+* **Sign of a difference stated "in favour of" a group.** A correct sentence that reports a positive
+  difference "in favour of" the treatment, when the declared contrast gives a negative estimate, can
+  be marked as a conflict (number and range).
 * **Bare difference claims.** "The groups differed" or "the population means differ", without
   "significantly", is not judged; it is neither flagged nor confirmed (found in an outside
   benchmark, 0.6.1).

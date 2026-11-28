@@ -33,7 +33,7 @@ from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from typing import Dict, List, Optional, Tuple
 
-from ._core import Evidence, level_text
+from ._core import Evidence, level_text, sesoi_bound_direction
 
 CONSISTENT = "consistent"
 CHECK = "check"
@@ -1828,6 +1828,17 @@ def _judge_number(h: _Hit, ctx: Context, sign: Optional[int], known) -> Tuple[st
         else:
             dirs = [1, -1]
         v = abs(x)
+        side = sesoi_bound_direction(ev, v) if qual in _LOWER_Q else 0
+        if side:
+            # "at least the SESOI" is the minimal-effect claim: judge it with that test.
+            sides = [d for d in dirs if side == 2 or d == side]
+            if sides:
+                mz = ctx.ci_text("met")
+                if any(ev.claim_class == ("exceeds_sesoi_positive" if d > 0 else "exceeds_sesoi_negative")
+                       for d in sides):
+                    return CONSISTENT, f"The minimal-effect test establishes an effect beyond {s} ({mz})."
+                return CONFLICT, (f"An effect beyond the smallest effect size of interest ({s}) is not "
+                                  f"established ({mz}).")
         if qual in _LOWER_Q:
             ok = any((d > 0 and lo > v) or (d < 0 and hi < -v) for d in dirs)
             if ok:

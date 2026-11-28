@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.6.2
+
+Two coherence fixes from an outside review of the 0.6 paper: one proposition now gets one decision.
+
+* **"At least the SESOI" is judged by the minimal-effect test.** A claim that the effect is at least
+  the smallest effect size of interest ("improved scores by at least 3 points" with a SESOI of 3) is
+  the same proposition as "beyond the SESOI". With `met_method="relevance"` the two were judged by
+  different intervals, so `verify(Assertion("important"))` could be supported while "at least 3" was a
+  conflict. Both the rule checker and `verify()` now use the minimal-effect test for a stated size equal
+  to a SESOI bound. Other sizes are still judged against the (1 - alpha) interval. With the default
+  split method nothing changes.
+* **Relevance test with unequal bounds.** The per-side level came from the full width of the bounds,
+  so with very unequal bounds (for example (-10, 0.01)) an effect beyond the narrow bound could be
+  "established" while the zero test was not significant. The level now comes from twice the nearer
+  bound. Symmetric bounds are unaffected; the test stays valid (size at most alpha).
+* A property test checks that "exceeds the SESOI" always implies a difference from zero in the same
+  direction. Tests: `tests/test_coherence_062.py`. No change on the 405 reader-experiment sentences,
+  the 60 MedLitSpin conclusions or the outside benchmark.
+
 ## 0.6.1
 
 * **Reader failures are reported.** In 0.6.0, when a language model's reply had no
